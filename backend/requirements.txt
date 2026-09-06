@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+supabase
+reportlab
+opencv-python-headless
+paddleocr
+pytesseract
+easyocr
+python-dotenv

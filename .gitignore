@@ -1,0 +1,32 @@
+# Environment
+.env
+.env.local
+
+# Node / Frontend
+node_modules/
+dist/
+.vercel/
+
+# Python / Backend
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# ML / Data
+*.h5
+*.pt
+*.onnx
+/ml/checkpoints/
+/sample_data/*.jpg
+/sample_data/*.png
+!/sample_data/.gitkeep
+
+# Reports & generated evidence
+/reports/generated/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

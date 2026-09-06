@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InspectionResult",
+  "description": "Shared contract: OCR writes fields+confidence, CV writes visual_checks, the rule engine writes compliance, backend persists the whole object, frontend reads it.",
+  "type": "object",
+  "properties": {
+    "inspection_id": { "type": "string" },
+    "image_id": { "type": "string" },
+    "product": {
+      "type": "object",
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] }
+      }
+    },
+    "ocr_raw": {
+      "type": "object",
+      "description": "Owned by OCR engineer",
+      "properties": {
+        "texts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": { "type": "string" },
+              "confidence": { "type": "number" },
+              "bbox": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            },
+            "required": ["text", "confidence", "bbox"]
+          }
+        }
+      }
+    },
+    "fields": {
+      "type": "object",
+      "description": "Owned by OCR/Legal engineer - normalized declarations",
+      "properties": {
+        "manufacturer": { "type": ["string", "null"] },
+        "country_of_origin": { "type": ["string", "null"] },
+        "net_quantity": { "type": ["string", "null"] },
+        "manufacture_date": { "type": ["string", "null"] },
+        "mrp": { "type": ["string", "null"] },
+        "consumer_care": { "type": ["string", "null"] }
+      }
+    },
+    "visual_checks": {
+      "type": "object",
+      "description": "Owned by CV engineer",
+      "properties": {
+        "readability": { "type": ["string", "null"] },
+        "font_height": { "type": ["number", "null"] },
+        "placement": { "type": ["string", "null"] }
+      }
+    },
+    "compliance": {
+      "type": "object",
+      "description": "Owned by Legal & Rules engineer",
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "REVIEW"] },
+        "violations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["inspection_id", "product", "fields", "compliance"]
+}
