@@ -1,5 +1,5 @@
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -57,7 +57,7 @@ class InspectionResult(BaseModel):
     fields: MandatoryFields = Field(default_factory=MandatoryFields)
     visual_checks: Optional[VisualChecks] = None
     compliance: ComplianceResult = Field(default_factory=ComplianceResult)
-    created_at: Optional[str] = Field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    created_at: Optional[str] = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class InspectionListResponse(BaseModel):

@@ -24,12 +24,12 @@ class PreprocessHandoff:
     MAX_DIMENSION: int = 8192
 
     @classmethod
-    def load_and_validate(cls, source: Union[np.ndarray, str, Path]) -> np.ndarray:
+    def load_and_validate(cls, source: Union[np.ndarray, str, Path, bytes, bytearray]) -> np.ndarray:
         """
         Ingest, validate, and standardize an image into an RGB uint8 array.
 
         Args:
-            source: In-memory numpy array (from cv/ module) or file path.
+            source: In-memory numpy array, raw image bytes, or file path.
 
         Returns:
             np.ndarray: 3-channel uint8 array with shape (H, W, 3) in RGB ordering.
@@ -39,7 +39,16 @@ class PreprocessHandoff:
         """
         image_array: np.ndarray
 
-        if isinstance(source, (str, Path)):
+        if isinstance(source, (bytes, bytearray)):
+            if len(source) == 0:
+                raise ImageValidationError("Received empty byte buffer (size == 0).")
+            nparr = np.frombuffer(source, np.uint8)
+            bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if bgr is None:
+                raise ImageValidationError("Invalid or corrupt image: OpenCV failed to decode image bytes into an image array.")
+            image_array = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+        elif isinstance(source, (str, Path)):
             path = Path(source)
             if not path.exists() or not path.is_file():
                 raise ImageValidationError(f"Image file does not exist: {path}")

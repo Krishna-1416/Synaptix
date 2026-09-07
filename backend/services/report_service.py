@@ -1,7 +1,7 @@
 import io
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
@@ -96,7 +96,7 @@ def generate_compliance_pdf(inspection: InspectionResult) -> bytes:
 
     meta_data = [
         [Paragraph("<b>Inspection ID:</b>", normal_style), Paragraph(inspection.inspection_id, normal_style),
-         Paragraph("<b>Date & Time:</b>", normal_style), Paragraph(inspection.created_at or datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), normal_style)],
+         Paragraph("<b>Date & Time:</b>", normal_style), Paragraph(inspection.created_at or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"), normal_style)],
         [Paragraph("<b>Product Name:</b>", normal_style), Paragraph(inspection.product.name or "N/A", normal_style),
          Paragraph("<b>Category:</b>", normal_style), Paragraph(inspection.product.category or "FMCG / Packaged", normal_style)],
         [Paragraph("<b>Image Reference:</b>", normal_style), Paragraph(inspection.image_id or "N/A", normal_style),

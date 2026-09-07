@@ -148,3 +148,16 @@ class TokenNormalizer:
         # Sort lines top-to-bottom by y_min
         text_lines.sort(key=lambda line: line.bbox[1])
         return text_lines
+
+    @classmethod
+    def normalize(
+        cls,
+        tokens: list[OCRToken],
+        min_confidence: Optional[float] = None,
+        vertical_overlap_ratio: float = 0.5,
+    ) -> list[TextLine]:
+        """
+        Convenience pipeline: filters tokens by confidence and reconstructs spatial text lines.
+        """
+        filtered = cls.filter_tokens(tokens, min_confidence=min_confidence)
+        return cls.reconstruct_lines(filtered, vertical_overlap_ratio=vertical_overlap_ratio)

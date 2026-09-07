@@ -12,7 +12,8 @@ Legal Metrology (Packaged Commodities) Rules, 2011 from normalized text lines:
 """
 
 import re
-from typing import Optional
+from typing import Any, Optional, Union
+from ocr.interfaces import OCRToken
 from ocr.models import LegalMetrologyFields
 from ocr.normalizer import TextLine, TokenNormalizer
 
@@ -27,15 +28,15 @@ class LegalFieldExtractor:
     # 1. MRP Patterns
     # --------------------------------------------------------------------------
     RE_MRP_KEYWORD = re.compile(
-        r"(?:M\.?\s*R\.?\s*P\.?|MAX(?:IMUM)?\s*RETAIL\s*PRICE)",
+        r"(?:M\.?\s*R\.?\s*P\.?|MAX\.?(?:IMUM)?\s*RETAIL\s*PRICE)",
         re.IGNORECASE,
     )
     RE_MRP_FULL = re.compile(
         r"""
-        (?:M\.?\s*R\.?\s*P\.?|MAX(?:IMUM)?\s*RETAIL\s*PRICE)   # Keyword
+        (?:M\.?\s*R\.?\s*P\.?|MAX\.?(?:IMUM)?\s*RETAIL\s*PRICE) # Keyword
         [^\d₹Rs]*                                              # Delimiters
         (?:₹|Rs\.?|INR)?\s*                                    # Currency
-        (?P<amount>\d+(?:\.\d{1,2})?)                          # Price amount
+        (?P<amount>(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d{1,2})?) # Price amount with optional comma
         \s*(?:/-)?                                             # Optional /- suffix
         (?:\s*\(?(?P<tax_qualifier>INCL(?:USIVE)?\s*OF\s*ALL\s*TAXES|INCL(?:USIVE)?\s*OF\s*TAXES)\)?)? # Taxes
         """,
@@ -87,11 +88,16 @@ class LegalFieldExtractor:
     # --------------------------------------------------------------------------
     # 4. Country of Origin Patterns
     # --------------------------------------------------------------------------
+    KNOWN_COUNTRIES = {
+        "india", "vietnam", "china", "usa", "japan", "germany", "france",
+        "italy", "bangladesh", "sri lanka", "indonesia", "thailand", "malaysia",
+        "united states", "united kingdom", "korea", "taiwan", "nepal", "bhutan"
+    }
     RE_ORIGIN = re.compile(
         r"""
-        (?:COUNTRY\s*OF\s*ORIGIN|MADE\s*IN|PRODUCT\s*OF|MANUFACTURED\s*IN)\b
+        (?:COUNTRY\s*OF\s*ORIGIN|MADE\s*IN|PRODUCT\s*OF|MANUFACTURED\s*IN|PRODUCED\s*IN)\b
         [\s\:\-]+
-        (?P<country>[A-Za-z\s]{2,25})
+        (?P<country>[A-Za-z]+(?:\s+[A-Za-z]+){0,2})
         """,
         re.IGNORECASE | re.VERBOSE,
     )
@@ -100,7 +106,7 @@ class LegalFieldExtractor:
     # 5. Manufacturer / Packer Patterns
     # --------------------------------------------------------------------------
     RE_MFG_KEYWORD = re.compile(
-        r"\b(?:MFD\.?\s*BY|MANUFACTURED\s*(?:AND\s*PACKED\s*)?BY|PACKED\s*BY|MKTD\.?\s*BY|MARKETED\s*BY|PRODUCED\s*BY|IMPORTED\s*BY)\b",
+        r"\b(?:MFD\.?\s*BY|MANUFACTURED\s*(?:AND\s*PACKED\s*)?BY|PACKED\s*BY|MKTD\.?\s*BY|MARKETED\s*BY|PRODUCED\s*BY|IMPORTED\s*(?:&\s*MARKETED\s*)?BY)\b",
         re.IGNORECASE,
     )
     RE_PINCODE = re.compile(r"\b\d{6}\b")
@@ -109,12 +115,12 @@ class LegalFieldExtractor:
     # 6. Consumer Care Patterns
     # --------------------------------------------------------------------------
     RE_CARE_KEYWORD = re.compile(
-        r"\b(?:CUSTOMER\s*CARE|CONSUMER\s*CARE|FEEDBACK|QUERIES|COMPLAINTS?|CARE\s*EXECUTIVE|CONTACT\s*US)\b",
+        r"\b(?:CUSTOMER\s*CARE|CONSUMER\s*CARE|CUSTOMER\s*QUERIES|CUSTOMER\s*SERVICE|CONSUMER\s*CELL|FEEDBACK|QUERIES|COMPLAINTS?|CARE\s*EXECUTIVE|CARE\s*CONTACT|CONTACT\s*US|HELPLINE)\b",
         re.IGNORECASE,
     )
     RE_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
     RE_PHONE = re.compile(
-        r"(?:(?:(?:\+?91[\-\s]?)?|0)?(?:1800|1860)[\-\s]?\d{3}[\-\s]?\d{3,4}|\b\d{10}\b|\b\d{3,5}[\-\s]\d{6,8}\b)"
+        r"(?:(?:(?:\+?91[\-\s]?)?|0)?(?:1800|1860)[\-\s]?\d{2,4}[\-\s]?\d{3,4}|\b(?:\+?91[\-\s]?)?\d{10}\b|\b(?:\+?91[\-\s]?)?\d{2,5}[\-\s]\d{6,8}\b)"
     )
 
     @classmethod
@@ -137,7 +143,7 @@ class LegalFieldExtractor:
 
             # Fallback if keyword detected but regex missed
             if cls.RE_MRP_KEYWORD.search(text):
-                digit_match = re.search(r"(?:₹|Rs\.?|INR)?\s*(\d+(?:\.\d{1,2})?)", text, re.IGNORECASE)
+                digit_match = re.search(r"(?:₹|Rs\.?|INR)?\s*((?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d{1,2})?)", text, re.IGNORECASE)
                 if digit_match:
                     amount = digit_match.group(1)
                     tax_match = cls.RE_TAX_QUALIFIER.search(text)
@@ -215,15 +221,25 @@ class LegalFieldExtractor:
             text = line.text
             match = cls.RE_ORIGIN.search(text)
             if match:
-                country = match.group("country").strip().strip(":.-, ")
-                # Capitalize nicely
-                return country.title() if country.isupper() else country
+                raw_country = match.group("country").strip().strip(":.-, ")
+                words = raw_country.split()
+                if words:
+                    cand2 = " ".join(words[:2]).lower()
+                    cand1 = words[0].lower()
+                    if cand2 in cls.KNOWN_COUNTRIES:
+                        return cand2.title()
+                    if cand1 in cls.KNOWN_COUNTRIES:
+                        return cand1.title()
+                    clean_w = [w for w in words if w.lower() not in {"protein", "energy", "fat", "store", "batch", "date"}]
+                    if clean_w:
+                        first = clean_w[0].strip(":.-, ")
+                        return first.title() if first.isupper() else first
 
-            # Explicit check for common "Made in India"
-            if "MADE IN INDIA" in text.upper():
-                return "India"
-            if "PRODUCT OF INDIA" in text.upper():
-                return "India"
+            # Explicit check for common country declarations
+            upper = text.upper()
+            for kc in ["INDIA", "VIETNAM", "CHINA", "BANGLADESH", "SRI LANKA", "THAILAND", "JAPAN", "USA"]:
+                if f"MADE IN {kc}" in upper or f"PRODUCT OF {kc}" in upper or f"ORIGIN: {kc}" in upper or f"ORIGIN : {kc}" in upper or f"IN: {kc}" in upper:
+                    return kc.title()
 
         return None
 
@@ -242,8 +258,8 @@ class LegalFieldExtractor:
                 initial_part = text[start_idx:].strip(" :.-")
                 mfg_parts = [initial_part] if initial_part else []
 
-                # Lookahead to subsequent lines for address continuation
-                for next_idx in range(i + 1, min(len(lines), i + 4)):
+                # Lookahead to subsequent lines for address continuation (up to 5 lines)
+                for next_idx in range(i + 1, min(len(lines), i + 6)):
                     next_line = lines[next_idx].text.strip()
                     # Stop if next line starts with another major declaration
                     if any(
@@ -318,3 +334,58 @@ class LegalFieldExtractor:
             manufacturer=cls.extract_manufacturer(lines),
             consumer_care=cls.extract_consumer_care(lines),
         )
+
+    # Alias for convenience and backward compatibility
+    extract = extract_all_fields
+
+
+def extract_fields(source: Any) -> dict:
+    """
+    Top-level Rule 6 declaration extraction facade.
+
+    Accepts:
+    - OCRRawPayload / OCRRaw object (containing .texts)
+    - List of OCRToken / OCRTextItem objects
+    - List of TextLine objects
+    - Dict representation of OCR output
+
+    Returns:
+        dict: Standardized field dictionary with keys:
+              manufacturer, country_of_origin, net_quantity,
+              manufacture_date, mrp, consumer_care
+    """
+    if source is None:
+        return LegalMetrologyFields().model_dump()
+
+    if hasattr(source, "texts"):
+        tokens = source.texts
+    elif isinstance(source, dict) and "texts" in source:
+        tokens = source["texts"]
+    elif isinstance(source, list):
+        tokens = source
+    else:
+        tokens = []
+
+    # If already a list of TextLine objects, extract directly
+    if tokens and all(isinstance(t, TextLine) for t in tokens):
+        fields = LegalFieldExtractor.extract_all_fields(tokens)
+        return fields.model_dump()
+
+    # Normalize tokens to OCRToken instances
+    ocr_tokens: list[OCRToken] = []
+    for item in tokens:
+        if isinstance(item, OCRToken):
+            ocr_tokens.append(item)
+        elif hasattr(item, "text") and hasattr(item, "bbox"):
+            bbox = list(item.bbox) if hasattr(item, "bbox") else [0, 0, 0, 0]
+            conf = float(item.confidence) if hasattr(item, "confidence") else 1.0
+            ocr_tokens.append(OCRToken(text=str(item.text), confidence=conf, bbox=[int(round(x)) for x in bbox]))
+        elif isinstance(item, dict) and "text" in item:
+            bbox = item.get("bbox", [0, 0, 0, 0])
+            conf = float(item.get("confidence", 1.0))
+            ocr_tokens.append(OCRToken(text=str(item["text"]), confidence=conf, bbox=[int(round(x)) for x in bbox]))
+
+    lines = TokenNormalizer.normalize(ocr_tokens)
+    fields = LegalFieldExtractor.extract_all_fields(lines)
+    return fields.model_dump()
+

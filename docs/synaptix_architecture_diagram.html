@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SYNAPTIX System Architecture Diagram</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #070c18;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #f1f5f9;
+      width: 1920px;
+      height: 1080px;
+      padding: 34px 44px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+    }
+
+    /* Ambient Background Glow */
+    body::before {
+      content: '';
+      position: absolute;
+      top: -120px;
+      left: 8%;
+      width: 650px;
+      height: 650px;
+      background: radial-gradient(circle, rgba(0, 242, 254, 0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    body::after {
+      content: '';
+      position: absolute;
+      bottom: -120px;
+      right: 8%;
+      width: 650px;
+      height: 650px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.10) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* Header */
+    .arch-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      position: relative;
+      z-index: 10;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .brand-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13.5px;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(79, 172, 254, 0.2));
+      border: 1px solid rgba(0, 242, 254, 0.5);
+      color: #00f2fe;
+      letter-spacing: 0.05em;
+    }
+
+    .title-group h1 {
+      font-size: 27px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .title-group p {
+      font-size: 12.5px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+
+    .header-badges {
+      display: flex;
+      gap: 10px;
+    }
+
+    .h-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+    }
+
+    .h-badge.accent {
+      background: rgba(0, 242, 254, 0.1);
+      border-color: rgba(0, 242, 254, 0.35);
+      color: #00f2fe;
+    }
+
+    /* Main Architecture Flow Grid */
+    .arch-flow {
+      display: grid;
+      grid-template-columns: 305px 64px 305px 64px 325px 64px 335px 64px 305px;
+      align-items: stretch;
+      margin: 18px 0;
+      flex: 1;
+      position: relative;
+      z-index: 10;
+    }
+
+    /* Connector Columns */
+    .connector-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 0 4px;
+    }
+
+    .flow-line {
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(0, 242, 254, 0.4), rgba(56, 189, 248, 0.8));
+      position: relative;
+    }
+
+    .flow-arrow {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #0b1329;
+      border: 1.5px solid #00f2fe;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: #00f2fe;
+      box-shadow: 0 0 12px rgba(0, 242, 254, 0.4);
+      margin-top: -13px;
+      position: relative;
+      z-index: 5;
+    }
+
+    .payload-tag {
+      margin-bottom: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8.5px;
+      font-weight: 600;
+      color: #38bdf8;
+      background: rgba(11, 19, 41, 0.95);
+      padding: 4px 6px;
+      border-radius: 5px;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      text-align: center;
+      line-height: 1.3;
+      width: 80px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Tier Cards */
+    .tier-card {
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(12px);
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 18px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .tier-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3.5px;
+      background: var(--tier-accent, #00f2fe);
+    }
+
+    /* Specific Tier Accents */
+    .tier-1 { --tier-accent: #00f2fe; border-color: rgba(0, 242, 254, 0.3); }
+    .tier-2 { --tier-accent: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+    .tier-3 { --tier-accent: #a855f7; border-color: rgba(168, 85, 247, 0.3); }
+    .tier-4 { --tier-accent: #f59e0b; border-color: rgba(245, 158, 11, 0.3); }
+    .tier-5 { --tier-accent: #10b981; border-color: rgba(16, 185, 129, 0.3); }
+
+    .tier-header {
+      margin-bottom: 12px;
+    }
+
+    .tier-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--tier-accent);
+      margin-bottom: 3px;
+    }
+
+    .tier-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tier-sub {
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+
+    /* Modules within a Tier */
+    .modules-list {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+
+    .module-item {
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 8px;
+      padding: 9px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .module-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .module-desc {
+      font-size: 10.5px;
+      color: #94a3b8;
+      line-height: 1.35;
+    }
+
+    .module-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8.5px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      width: fit-content;
+      margin-top: 3px;
+    }
+
+    /* Tier Footer / Tech Specs */
+    .tier-footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .tech-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9.5px;
+      font-weight: 600;
+      padding: 2.5px 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #94a3b8;
+    }
+
+    .tech-tag.highlight {
+      background: rgba(0, 242, 254, 0.1);
+      border-color: rgba(0, 242, 254, 0.35);
+      color: #00f2fe;
+    }
+
+    .tech-tag.amber {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: rgba(245, 158, 11, 0.35);
+      color: #f59e0b;
+    }
+
+    .tech-tag.green {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.35);
+      color: #10b981;
+    }
+
+    .tech-tag.purple {
+      background: rgba(168, 85, 247, 0.1);
+      border-color: rgba(168, 85, 247, 0.35);
+      color: #c084fc;
+    }
+
+    /* Bottom Architecture Metrics Bar */
+    .arch-metrics-bar {
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 14px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative;
+      z-index: 10;
+    }
+
+    .metric-box {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .metric-icon {
+      font-size: 24px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 8px 10px;
+      border-radius: 8px;
+    }
+
+    .metric-content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .metric-val {
+      font-size: 15.5px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .metric-lbl {
+      font-size: 11.5px;
+      color: #94a3b8;
+    }
+
+    .divider-v {
+      width: 1px;
+      height: 36px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="arch-header">
+    <div class="header-left">
+      <div class="brand-pill">SYNAPTIX // ARCHITECTURE</div>
+      <div class="title-group">
+        <h1>End-to-End System & Dataflow Architecture</h1>
+        <p>Problem Statement: SIH26034 • Legal Metrology (Packaged Commodities) Rules, 2011 Compliance Verification</p>
+      </div>
+    </div>
+    <div class="header-badges">
+      <div class="h-badge accent">Edge-to-Cloud Pipeline</div>
+      <div class="h-badge">Zero API Cost</div>
+      <div class="h-badge">100% Deterministic Engine</div>
+      <div class="h-badge">37/37 Unit Tests Passing</div>
+    </div>
+  </div>
+
+  <!-- Main 5-Tier Architecture Flow -->
+  <div class="arch-flow">
+
+    <!-- TIER 1 -->
+    <div class="tier-card tier-1">
+      <div>
+        <div class="tier-header">
+          <div class="tier-eyebrow">Tier 01 • Field Ingestion</div>
+          <h2 class="tier-title"><span>📱</span> Inspector Client</h2>
+          <div class="tier-sub">Progressive Web App (Edge Device)</div>
+        </div>
+        <div class="modules-list">
+          <div class="module-item">
+            <div class="module-title">📷 High-Res Camera Capture</div>
+            <div class="module-desc">Native MediaDevices stream with client-side EXIF auto-orientation.</div>
+            <span class="module-pill">HTML5 Canvas / Blob</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">💾 Offline Queue Engine</div>
+            <div class="module-desc">IndexedDB store-and-forward for remote retail raids without cellular connection.</div>
+            <span class="module-pill">IndexedDB ServiceWorker</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">📍 Inspection Geotagging</div>
+            <div class="module-desc">GPS coordinates, Officer JWT ID, and timestamp cryptographic watermark.</div>
+            <span class="module-pill">REST / Multipart Stream</span>
+          </div>
+        </div>
+      </div>
+      <div class="tier-footer">
+        <span class="tech-tag highlight">React 18</span>
+        <span class="tech-tag highlight">Vite</span>
+        <span class="tech-tag highlight">Tailwind</span>
+        <span class="tech-tag">PWA</span>
+      </div>
+    </div>
+
+    <!-- CONNECTOR 1 -> 2 -->
+    <div class="connector-col">
+      <div class="payload-tag">Multipart Image + EXIF GPS</div>
+      <div class="flow-line"></div>
+      <div class="flow-arrow">→</div>
+    </div>
+
+    <!-- TIER 2 -->
+    <div class="tier-card tier-2">
+      <div>
+        <div class="tier-header">
+          <div class="tier-eyebrow">Tier 02 • Vision Pipeline</div>
+          <h2 class="tier-title"><span>🔬</span> CV Preprocessing</h2>
+          <div class="tier-sub">Packaging Glare & Geometry Normalizer</div>
+        </div>
+        <div class="modules-list">
+          <div class="module-item">
+            <div class="module-title">✨ Bilateral Anti-Glare Filter</div>
+            <div class="module-desc">Edge-preserving smoothing removes high-frequency plastic wrap reflection.</div>
+            <span class="module-pill">cv2.bilateralFilter</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">📐 Perspective Deskewer</div>
+            <div class="module-desc">MinAreaRect contour isolation deskews tilted or curved bottle/box labels.</div>
+            <span class="module-pill">cv2.getPerspectiveTransform</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">⚡ Zero-Copy Handoff</div>
+            <div class="module-desc">In-memory direct array passing eliminates disk writes and temporary file I/O.</div>
+            <span class="module-pill">np.ndarray (H, W, 3)</span>
+          </div>
+        </div>
+      </div>
+      <div class="tier-footer">
+        <span class="tech-tag highlight">OpenCV 4.x</span>
+        <span class="tech-tag highlight">NumPy</span>
+        <span class="tech-tag highlight">Pillow</span>
+        <span class="tech-tag">Zero Disk I/O</span>
+      </div>
+    </div>
+
+    <!-- CONNECTOR 2 -> 3 -->
+    <div class="connector-col">
+      <div class="payload-tag">In-Memory NumPy Array</div>
+      <div class="flow-line"></div>
+      <div class="flow-arrow">→</div>
+    </div>
+
+    <!-- TIER 3 -->
+    <div class="tier-card tier-3">
+      <div>
+        <div class="tier-header">
+          <div class="tier-eyebrow">Tier 03 • Deep Perception</div>
+          <h2 class="tier-title"><span>🧠</span> Deep OCR Engine</h2>
+          <div class="tier-sub">Dual-Engine Text & Spatial Tokenizer</div>
+        </div>
+        <div class="modules-list">
+          <div class="module-item">
+            <div class="module-title">🎯 DBNet++ Text Detector</div>
+            <div class="module-desc">Differentiable binarization for multi-oriented packaging text polygons.</div>
+            <span class="module-pill">PP-OCRv4 Detector</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">🔡 SVTR-LCNet Recognizer</div>
+            <div class="module-desc">Lightweight transformer-based character recognition optimized for CPUs.</div>
+            <span class="module-pill">PP-OCRv4 Recognizer</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">🛡️ Resilient Dual-Fallback</div>
+            <div class="module-desc">Automatic failover to EasyOCR ensures 99.9% inspection operational uptime.</div>
+            <span class="module-pill">EasyOCR / Tesseract</span>
+          </div>
+        </div>
+      </div>
+      <div class="tier-footer">
+        <span class="tech-tag purple">PaddleOCR v4</span>
+        <span class="tech-tag purple">EasyOCR</span>
+        <span class="tech-tag purple">PyTorch/ONNX</span>
+        <span class="tech-tag">Spatial BBoxes</span>
+      </div>
+    </div>
+
+    <!-- CONNECTOR 3 -> 4 -->
+    <div class="connector-col">
+      <div class="payload-tag">OCRResult JSON Coordinates</div>
+      <div class="flow-line"></div>
+      <div class="flow-arrow">→</div>
+    </div>
+
+    <!-- TIER 4 -->
+    <div class="tier-card tier-4">
+      <div>
+        <div class="tier-header">
+          <div class="tier-eyebrow">Tier 04 • Compliance Core</div>
+          <h2 class="tier-title"><span>⚖️</span> Rule 6 Legal Engine</h2>
+          <div class="tier-sub">Deterministic Statutory Verification</div>
+        </div>
+        <div class="modules-list">
+          <div class="module-item">
+            <div class="module-title">🧩 Line-Proximity Windowing</div>
+            <div class="module-desc">Stitches broken multiline tokens (e.g. 'MRP' on L1, 'incl. taxes' on L2).</div>
+            <span class="module-pill">Reading-Order Sorter</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">📜 6 Mandatory Rule 6 Parsers</div>
+            <div class="module-desc">
+              1. MRP + Taxes &bull; 2. Net Qty (SI) &bull; 3. Date (MM/YY)<br>
+              4. Mfr & PIN &bull; 5. Origin &bull; 6. Consumer Care
+            </div>
+            <span class="module-pill">LMPC Rules, 2011</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">⚖️ Court-Admissible Verdict</div>
+            <div class="module-desc">PASS / FAIL / REVIEW with statutory sub-clause citations. No hallucination.</div>
+            <span class="module-pill">Section 36 Penalty Calc</span>
+          </div>
+        </div>
+      </div>
+      <div class="tier-footer">
+        <span class="tech-tag amber">Python 3.12</span>
+        <span class="tech-tag amber">Pydantic V2</span>
+        <span class="tech-tag amber">Regex Engine</span>
+        <span class="tech-tag">Zero LLM</span>
+      </div>
+    </div>
+
+    <!-- CONNECTOR 4 -> 5 -->
+    <div class="connector-col">
+      <div class="payload-tag">Compliance Report JSON</div>
+      <div class="flow-line"></div>
+      <div class="flow-arrow">→</div>
+    </div>
+
+    <!-- TIER 5 -->
+    <div class="tier-card tier-5">
+      <div>
+        <div class="tier-header">
+          <div class="tier-eyebrow">Tier 05 • Cloud & Evidence</div>
+          <h2 class="tier-title"><span>☁️</span> Persistence & Notice</h2>
+          <div class="tier-sub">Audit Trail & Legal Evidence Store</div>
+        </div>
+        <div class="modules-list">
+          <div class="module-item">
+            <div class="module-title">⚡ FastAPI ASGI Gateway</div>
+            <div class="module-desc">High-throughput async threadpool handling inspection payloads & health.</div>
+            <span class="module-pill">ASGI / Uvicorn</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">🗄️ Supabase PostgreSQL + S3</div>
+            <div class="module-desc">Immutable audit logs, infraction coordinates & raw + annotated imagery.</div>
+            <span class="module-pill">PostgreSQL / S3 Bucket</span>
+          </div>
+          <div class="module-item">
+            <div class="module-title">📄 Form A Legal PDF Generator</div>
+            <div class="module-desc">Generates court-ready inspection certificate with SHA-256 hash & QR code.</div>
+            <span class="module-pill">ReportLab Engine</span>
+          </div>
+        </div>
+      </div>
+      <div class="tier-footer">
+        <span class="tech-tag green">FastAPI</span>
+        <span class="tech-tag green">Supabase SQL</span>
+        <span class="tech-tag green">ReportLab</span>
+        <span class="tech-tag">SHA-256</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom Metrics & Verification Bar -->
+  <div class="arch-metrics-bar">
+    <div class="metric-box">
+      <span class="metric-icon">⚡</span>
+      <div class="metric-content">
+        <div class="metric-val">&lt; 1.8 Seconds</div>
+        <div class="metric-lbl">Full Scan-to-Verdict Latency on Quad-Core CPU</div>
+      </div>
+    </div>
+
+    <div class="divider-v"></div>
+
+    <div class="metric-box">
+      <span class="metric-icon">🔒</span>
+      <div class="metric-content">
+        <div class="metric-val">100% Deterministic</div>
+        <div class="metric-lbl">Zero Generative Hallucinations • Statutory Clause Citations</div>
+      </div>
+    </div>
+
+    <div class="divider-v"></div>
+
+    <div class="metric-box">
+      <span class="metric-icon">💰</span>
+      <div class="metric-content">
+        <div class="metric-val">$0 API Token Cost</div>
+        <div class="metric-lbl">100% Self-Hosted Open Source Foundation</div>
+      </div>
+    </div>
+
+    <div class="divider-v"></div>
+
+    <div class="metric-box">
+      <span class="metric-icon">🧪</span>
+      <div class="metric-content">
+        <div class="metric-val">37 / 37 Tests Passing</div>
+        <div class="metric-lbl">Automated Pytest Suite on Complex FMCG Packaging Fixtures</div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

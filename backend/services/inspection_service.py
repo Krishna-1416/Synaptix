@@ -1,6 +1,7 @@
 import uuid
+import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from backend.models.inspection import (
     InspectionResult,
@@ -23,7 +24,9 @@ _MEMORY_INSPECTIONS: Dict[str, Dict[str, Any]] = {}
 
 
 def _run_cv_preprocess(image_bytes: bytes) -> bytes:
-    """Hook into cv/ module if available, otherwise return raw bytes."""
+    """Validate image bytes and hook into cv/ module if available."""
+    from ocr.preprocess_handoff import PreprocessHandoff
+    PreprocessHandoff.load_and_validate(image_bytes)
     try:
         from cv.preprocess import preprocess_image
         return preprocess_image(image_bytes)
@@ -34,19 +37,38 @@ def _run_cv_preprocess(image_bytes: bytes) -> bytes:
 
 def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, MandatoryFields]:
     """
-    Hook into ocr/ module (PaddleOCR / regex extraction) if available.
+    Hook into ocr/ module (PaddleOCR / reading-order normalizer / Rule 6 extractor).
     Returns (OCRRaw, MandatoryFields).
     """
     try:
-        from ocr.paddle_ocr_engine import extract_text
-        from ocr.field_extractor import extract_fields
-        
-        raw_ocr = extract_text(image_bytes)
-        fields_dict = extract_fields(raw_ocr)
-        return raw_ocr, MandatoryFields(**fields_dict)
-    except (ImportError, Exception) as e:
-        logger.debug(f"OCR module fallback used: {e}")
-        
+        from ocr.pipeline import run_ocr_pipeline
+
+        ocr_result = run_ocr_pipeline(image_bytes)
+
+        # Map domain OCRToken instances to backend OCRTextItem
+        ocr_items = [
+            OCRTextItem(
+                text=t.text,
+                confidence=t.confidence,
+                bbox=[float(x) for x in t.bbox],
+            )
+            for t in ocr_result.ocr_raw.texts
+        ]
+        raw_ocr = OCRRaw(texts=ocr_items)
+
+        # Map LegalMetrologyFields to MandatoryFields
+        fields = MandatoryFields(
+            manufacturer=ocr_result.fields.manufacturer,
+            country_of_origin=ocr_result.fields.country_of_origin,
+            net_quantity=ocr_result.fields.net_quantity,
+            manufacture_date=ocr_result.fields.manufacture_date,
+            mrp=ocr_result.fields.mrp,
+            consumer_care=ocr_result.fields.consumer_care,
+        )
+        return raw_ocr, fields
+    except Exception as e:
+        logger.warning(f"OCR module fallback used: {e}")
+
         # Intelligent baseline fallback demonstration
         mock_raw = OCRRaw(
             texts=[
@@ -74,7 +96,7 @@ def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
     try:
         from cv.font_height import calculate_font_height
         from cv.readability import check_readability
-        
+
         font_h = calculate_font_height(image_bytes)
         readability = check_readability(image_bytes)
         return VisualChecks(readability=readability, font_height=font_h, placement="Principal Display Panel")
@@ -97,24 +119,24 @@ class InspectionService:
         Executes end-to-end inspection:
         1. Store image
         2. CV Preprocessing
-        3. OCR Text Extraction & Field Parsing
+        3. OCR Text Extraction & Field Parsing (non-blocking threadpool)
         4. CV Visual Legibility Checks
         5. Legal Metrology Rules Validation
         6. Database Record Persistence
         """
-        inspection_id = f"INS-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
-        
+        inspection_id = f"INS-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+
         # 1. Image upload to storage
         image_id, image_url = await upload_label_image(file_bytes, filename)
 
-        # 2. CV Preprocessing
-        preprocessed_bytes = _run_cv_preprocess(file_bytes)
+        # 2. CV Preprocessing (delegated to worker thread)
+        preprocessed_bytes = await asyncio.to_thread(_run_cv_preprocess, file_bytes)
 
-        # 3. OCR & Field mapping
-        ocr_raw, fields = _run_ocr_pipeline(preprocessed_bytes, filename)
+        # 3. OCR & Field mapping (delegated to worker thread)
+        ocr_raw, fields = await asyncio.to_thread(_run_ocr_pipeline, preprocessed_bytes, filename)
 
-        # 4. CV Visual checks
-        visual_checks = _run_cv_visual_checks(preprocessed_bytes)
+        # 4. CV Visual checks (delegated to worker thread)
+        visual_checks = await asyncio.to_thread(_run_cv_visual_checks, preprocessed_bytes)
 
         # 5. Rule Engine evaluation
         compliance = evaluate_compliance(fields.model_dump(), visual_checks.model_dump())
@@ -132,7 +154,7 @@ class InspectionService:
             fields=fields,
             visual_checks=visual_checks,
             compliance=compliance,
-            created_at=datetime.utcnow().isoformat() + "Z"
+            created_at=datetime.now(timezone.utc).isoformat()
         )
 
         # 6. Database Persistence
