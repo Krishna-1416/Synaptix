@@ -5,6 +5,7 @@ pydantic
 supabase
 reportlab
 opencv-python-headless
+paddlepaddle
 paddleocr
 pytesseract
 easyocr

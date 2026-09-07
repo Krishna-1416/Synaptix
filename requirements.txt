@@ -1,0 +1,31 @@
+# ==============================================================================
+# Synaptix - Automated Legal Metrology Inspection System (SIH26034)
+# Monorepo Root Python Dependencies
+# Supported Python Versions: Python 3.10 - 3.12 (Recommended: 3.12)
+# ==============================================================================
+
+# --- Backend API & Web Server (Member 2) ---
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+pydantic>=2.0.0
+supabase>=2.3.0
+reportlab>=4.0.0
+python-dotenv>=1.0.0
+
+# --- OCR Engine & Text Extraction (Member 3: OCR Engineer) ---
+paddlepaddle>=2.5.0
+paddleocr>=2.7.0
+
+# --- Computer Vision & Preprocessing (Member 4: CV Engineer) ---
+opencv-python-headless>=4.8.0
+numpy>=1.24.0,<2.0.0
+Pillow>=9.5.0
+
+# --- Optional OCR Fallbacks ---
+easyocr>=1.7.0
+pytesseract>=0.3.10
+
+# --- Testing & Quality Assurance ---
+pytest>=7.4.0
+httpx>=0.25.0

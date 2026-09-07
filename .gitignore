@@ -30,3 +30,8 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Project docs / specs
+Synaptix Member wise Tasks final.pdf
+Synaptix Workflow (1).pdf
+*.pdf
