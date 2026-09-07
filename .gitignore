@@ -40,7 +40,7 @@ Synaptix Workflow (1).pdf
 graphify-out/
 
 # OCR tests & verification scripts
-ocr/verify_phase1.py
+ocr/verify_*.py
 ocr/tests/
 .pytest_cache/
 
