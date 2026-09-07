@@ -35,6 +35,8 @@ venv/
 Synaptix Member wise Tasks final.pdf
 Synaptix Workflow (1).pdf
 *.pdf
+*.pptx
+*.ppt
 
 # Tooling & Knowledge Graph
 graphify-out/
