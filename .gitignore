@@ -39,3 +39,8 @@ Synaptix Workflow (1).pdf
 # Tooling & Knowledge Graph
 graphify-out/
 
+# OCR tests & verification scripts
+ocr/verify_phase1.py
+ocr/tests/
+.pytest_cache/
+
