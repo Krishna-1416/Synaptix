@@ -32,6 +32,7 @@ venv/
 .vscode/
 
 # Project docs / specs
+docs/
 Synaptix Member wise Tasks final.pdf
 Synaptix Workflow (1).pdf
 *.pdf
