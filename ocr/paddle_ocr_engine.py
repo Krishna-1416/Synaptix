@@ -122,13 +122,67 @@ class PaddleOCREngine(OCREngineProtocol):
         return tokens
 
 
+class RapidOCREngine(OCREngineProtocol):
+    """
+    RapidOCR implementation running PP-OCRv4 models via ONNXRuntime.
+    Provides fast, standalone inference without heavy compiler dependencies.
+    """
+
+    _instance: Optional["RapidOCREngine"] = None
+    _lock: threading.Lock = threading.Lock()
+
+    def __init__(self):
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            self._engine = RapidOCR()
+            logger.info("RapidOCR (PP-OCRv4 ONNXRuntime) engine initialized.")
+        except ImportError as err:
+            logger.error(f"RapidOCR library is missing: {err}")
+            raise
+
+    @classmethod
+    def get_instance(cls) -> "RapidOCREngine":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def detect_and_recognize(self, image: np.ndarray) -> list[OCRToken]:
+        if image is None or image.size == 0:
+            return []
+
+        results, _ = self._engine(image)
+        if not results:
+            return []
+
+        tokens: list[OCRToken] = []
+        for item in results:
+            polygon, raw_text, conf = item[0], item[1], item[2]
+            text = str(raw_text).strip()
+            if not text:
+                continue
+
+            xs = [pt[0] for pt in polygon]
+            ys = [pt[1] for pt in polygon]
+            tokens.append(
+                OCRToken(
+                    text=text,
+                    confidence=round(max(0.0, min(1.0, float(conf))), 4),
+                    bbox=[int(round(min(xs))), int(round(min(ys))), int(round(max(xs))), int(round(max(ys)))],
+                )
+            )
+        return tokens
+
+
 def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRawPayload:
     """
     Top-level OCR text extraction facade.
     
     1. Validates and standardizes input (bytes, file path, numpy array) into RGB uint8 ndarray.
     2. Executes PaddleOCR PP-OCRv4 detection and recognition if installed.
-    3. Falls back gracefully to secondary OCR engines or structured fallback when deep OCR binaries are absent.
+    3. Executes RapidOCR PP-OCRv4 (ONNXRuntime) if installed.
+    4. Falls back gracefully to secondary OCR engines or structured fallback when deep OCR binaries are absent.
     
     Returns:
         OCRRawPayload: Container with detected OCRToken list.
@@ -143,7 +197,17 @@ def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRa
         tokens = engine.detect_and_recognize(image_np)
         return OCRRawPayload(texts=tokens)
     except Exception as paddle_err:
-        logger.debug(f"PaddleOCR inference unavailable ({paddle_err}). Checking secondary engines...")
+        logger.debug(f"PaddleOCR inference unavailable ({paddle_err}). Checking RapidOCR...")
+
+    # 2. Secondary Primary: RapidOCR (PP-OCRv4 ONNXRuntime)
+    try:
+        engine = RapidOCREngine.get_instance()
+        tokens = engine.detect_and_recognize(image_np)
+        if tokens:
+            logger.info(f"RapidOCR extracted {len(tokens)} real tokens from image.")
+            return OCRRawPayload(texts=tokens)
+    except Exception as rapid_err:
+        logger.debug(f"RapidOCR inference unavailable ({rapid_err}). Checking secondary engines...")
 
     # 2. Secondary: EasyOCR
     try:

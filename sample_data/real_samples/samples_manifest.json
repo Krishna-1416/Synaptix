@@ -1,0 +1,184 @@
+[
+  {
+    "index": 1,
+    "product_name": "Britannia Good Day Cashew Cookies",
+    "barcode": "8901063093522",
+    "file": "01_Good_Day_-_Cashew_Cookies.jpg",
+    "back_file_alias": "01_Good_Day_-_Cashew_Cookies_Back.jpg",
+    "panel_category": "Back of Pack - Ingredients & Metrology",
+    "visible_declarations": [
+      "Ingredients List",
+      "Allergen Warning",
+      "Britannia Industries Ltd",
+      "Customer Care Helpline"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/106/309/3522/ingredients_en.10.full.jpg",
+    "dimensions": "500x164",
+    "size_kb": 19.1,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\01_Good_Day_-_Cashew_Cookies.jpg"
+  },
+  {
+    "index": 2,
+    "product_name": "Nestle Maggi 2-Minute Noodles",
+    "barcode": "8901058017687",
+    "file": "02_maggi.jpg",
+    "back_file_alias": "02_maggi_Back.jpg",
+    "panel_category": "Back of Pack - Nutrition & Manufacturer Details",
+    "visible_declarations": [
+      "Nutritional Compass Table",
+      "Nestle India Limited",
+      "GDA Guideline Daily Amount",
+      "Contact Consumer Care"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/105/801/7687/nutrition_en.15.full.jpg",
+    "dimensions": "712x986",
+    "size_kb": 184.6,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\02_maggi.jpg"
+  },
+  {
+    "index": 3,
+    "product_name": "Amul Pasteurized Butter",
+    "barcode": "8901262010016",
+    "file": "03_Amul_Pasteurized_Butter.jpg",
+    "back_file_alias": "03_Amul_Pasteurized_Butter_Back.jpg",
+    "panel_category": "Back of Pack - Ingredients & Statutory Declarations",
+    "visible_declarations": [
+      "Ingredients: Butter, Common Salt",
+      "Net Quantity",
+      "GCMMF Ltd Anand",
+      "FSSAI License",
+      "Storage Conditions"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/126/201/0016/ingredients_en.37.full.jpg",
+    "dimensions": "1497x424",
+    "size_kb": 67.0,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\03_Amul_Pasteurized_Butter.jpg"
+  },
+  {
+    "index": 4,
+    "product_name": "Cadbury Dairy Milk Chocolate",
+    "barcode": "7622202334009",
+    "file": "04_dairy_milk.jpg",
+    "back_file_alias": "04_dairy_milk_Back.jpg",
+    "panel_category": "Back of Pack - Legal Metrology & Manufacturer Address",
+    "visible_declarations": [
+      "Mondelez India Foods Private Limited",
+      "Unit No. 2001, 20th Floor, One International Center, Parel, Mumbai-400013",
+      "FSSAI Lic No. 10014022002711",
+      "Ingredients & Cocoa Solids"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/762/220/233/4009/ingredients_en.13.full.jpg",
+    "dimensions": "459x343",
+    "size_kb": 51.7,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\04_dairy_milk.jpg"
+  },
+  {
+    "index": 5,
+    "product_name": "Lay's Classic Salted Potato Chips",
+    "barcode": "8901491101837",
+    "file": "05_Lays_Classics_Salted.jpg",
+    "back_file_alias": "05_Lays_Classics_Salted_Back.jpg",
+    "panel_category": "Back of Pack - Ingredients & FSSAI Declarations",
+    "visible_declarations": [
+      "PepsiCo India Holdings Pvt Ltd",
+      "Net Weight / Quantity",
+      "FSSAI License No",
+      "Batch No & Manufacturing Details"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/149/110/1837/ingredients_en.7.full.jpg",
+    "dimensions": "2106x922",
+    "size_kb": 360.7,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\05_Lays_Classics_Salted.jpg"
+  },
+  {
+    "index": 6,
+    "product_name": "Haldiram's Nagpur Masala Moong Dal",
+    "barcode": "8904063200143",
+    "file": "06_Haldirams_Masala_Moong_Dal_200.jpg",
+    "back_file_alias": "06_Haldirams_Masala_Moong_Dal_Back.jpg",
+    "panel_category": "Back of Pack - Rule 6 Mandatory Metrology Panel",
+    "visible_declarations": [
+      "Haldiram Foods International Pvt Ltd",
+      "Net Weight: 200g",
+      "Ingredients: Moong Dal, Edible Oil, Spices",
+      "FSSAI Lic",
+      "Consumer Complaints Cell"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/406/320/0143/ingredients_en.11.full.jpg",
+    "dimensions": "3823x1156",
+    "size_kb": 474.9,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\06_Haldirams_Masala_Moong_Dal_200.jpg"
+  },
+  {
+    "index": 7,
+    "product_name": "Parle - G Original Gluco Biscuits",
+    "barcode": "8901719101038",
+    "file": "07_Parle_-_G.jpg",
+    "back_file_alias": "07_Parle_-_G_Back.jpg",
+    "panel_category": "Back of Pack - Nutritional Information & Company Address",
+    "visible_declarations": [
+      "Nutrition Information per 100g",
+      "Parle Products Pvt. Ltd., V.S. Khandekar Marg, Vile Parle East, Mumbai 400057",
+      "FSSAI Lic",
+      "Ingredients & Trans Fat 0g"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/171/910/1038/nutrition_en.16.full.jpg",
+    "dimensions": "406x505",
+    "size_kb": 46.9,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\07_Parle_-_G.jpg"
+  },
+  {
+    "index": 8,
+    "product_name": "Amul Taaza Homogenised Toned Milk",
+    "barcode": "8901262020015",
+    "file": "08_Amul_Taaza_Milk.jpg",
+    "back_file_alias": "08_Amul_Taaza_Milk_Back.jpg",
+    "panel_category": "Back of Pack - Ingredients, Dairy Declarations & FSSAI",
+    "visible_declarations": [
+      "Toned Milk, Vitamin A & D",
+      "GCMMF Anand",
+      "FSSAI Lic 10012021000071",
+      "Nutritional Value per 100ml"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/126/202/0015/ingredients_en.24.full.jpg",
+    "dimensions": "1863x244",
+    "size_kb": 64.7,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\08_Amul_Taaza_Milk.jpg"
+  },
+  {
+    "index": 9,
+    "product_name": "Saffola Gold Pro Healthy Lifestyle Oil",
+    "barcode": "8901725181222",
+    "file": "09_Saffola_Gold.jpg",
+    "back_file_alias": "09_Saffola_Gold_Back.jpg",
+    "panel_category": "Back of Pack - Blended Oil Declarations & Nutrition",
+    "visible_declarations": [
+      "Marico Limited",
+      "Blended Edible Vegetable Oil",
+      "Fatty Acid Profile & Oryzanol",
+      "FSSAI & Regulatory Warning"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/890/172/518/1222/nutrition_fr.11.full.jpg",
+    "dimensions": "664x413",
+    "size_kb": 50.3,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\09_Saffola_Gold.jpg"
+  },
+  {
+    "index": 10,
+    "product_name": "Pringles Original Potato Crisps",
+    "barcode": "5053990138722",
+    "file": "10_Pringles_Original.jpg",
+    "back_file_alias": "10_Pringles_Declarations_Back.jpg",
+    "panel_category": "Back of Pack - Multi-lingual Legal Metrology & Net Qty",
+    "visible_declarations": [
+      "Dehydrated Potatoes, Emulsifiers",
+      "Net Weight e 165g",
+      "Kellogg Company / WMB Enterprises",
+      "Customer Service Contacts"
+    ],
+    "source_url": "https://images.openfoodfacts.org/images/products/505/399/013/8722/ingredients_en.265.full.jpg",
+    "dimensions": "1932x2576",
+    "size_kb": 529.0,
+    "path": "c:\\Users\\Krishna\\Synaptix\\sample_data\\real_samples\\10_Pringles_Original.jpg"
+  }
+]

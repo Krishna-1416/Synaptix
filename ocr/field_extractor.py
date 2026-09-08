@@ -56,13 +56,13 @@ class LegalFieldExtractor:
         [^\d]*                                                 # Delimiter
         (?P<value>\d+(?:\.\d+)?)                               # Numerical value
         \s*
-        (?P<unit>kg|g|gm|grams?|ml|l|ltr|litres?|N|units?|pcs|pieces|nos)\b # Legal SI units
+        (?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|N|units?|pcs|pieces|nos)\b # Legal SI units
         """,
         re.IGNORECASE | re.VERBOSE,
     )
     # Standalone fallback quantity if preceded without keyword (e.g., "500 g", "1.5 kg")
     RE_STANDALONE_QTY = re.compile(
-        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>kg|g|gm|grams?|ml|l|ltr|litres?|N|units?|pcs|pieces|nos)\b",
+        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|N|units?|pcs|pieces|nos)\b",
         re.IGNORECASE,
     )
 
@@ -187,7 +187,7 @@ class LegalFieldExtractor:
             return "g"
         if u in ("kg", "kilogram", "kilograms"):
             return "kg"
-        if u in ("ml", "millilitre", "millilitres"):
+        if u in ("ml", "millilitre", "millilitres", "mi", "m1", "m|"):
             return "ml"
         if u in ("l", "ltr", "litre", "litres"):
             return "l"

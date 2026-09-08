@@ -53,9 +53,5 @@ export const api = {
   }
 }
 
-export const demoInspections = [
-  { inspection_id: 'INSP-2408-0184', product: { name: 'Harvest Gold Basmati Rice', category: 'Food grains' }, compliance: { status: 'PASS', violations: [] }, created_at: '2026-08-24T09:18:00Z', fields: { manufacturer: 'Harvest Gold Foods', net_quantity: '5 kg', mrp: 'Rs. 640.00' }, visual_checks: { readability: 'PASS', font_height: 2.1, placement: 'PASS' } },
-  { inspection_id: 'INSP-2408-0183', product: { name: 'Nectar Hand Wash', category: 'Personal care' }, compliance: { status: 'FAIL', violations: ['MRP declaration is missing', 'Consumer care details not found'] }, created_at: '2026-08-24T08:42:00Z', fields: { manufacturer: 'Nectar Homecare', net_quantity: '250 ml', mrp: null }, visual_checks: { readability: 'PASS', font_height: 1.4, placement: 'REVIEW' } },
-  { inspection_id: 'INSP-2408-0182', product: { name: 'Kaveri Roasted Peanuts', category: 'Packaged food' }, compliance: { status: 'REVIEW', violations: ['Manufacture date could not be confidently read'] }, created_at: '2026-08-23T16:05:00Z', fields: { manufacturer: 'Kaveri Snacks', net_quantity: '200 g', mrp: 'Rs. 85.00' }, visual_checks: { readability: 'REVIEW', font_height: 1.1, placement: 'PASS' } },
-  { inspection_id: 'INSP-2408-0181', product: { name: 'ClearShield Surface Cleaner', category: 'Household' }, compliance: { status: 'PASS', violations: [] }, created_at: '2026-08-23T14:26:00Z', fields: { manufacturer: 'ClearShield Labs', net_quantity: '500 ml', mrp: 'Rs. 129.00' }, visual_checks: { readability: 'PASS', font_height: 2.7, placement: 'PASS' } }
-]
+export const demoInspections = []
+
