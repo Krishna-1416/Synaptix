@@ -1,32 +1,31 @@
-# frontend/ — Frontend & Product Engineer
+# Synaptix Inspector Console
 
-**Stack:** React + Vite (PWA), Tailwind CSS, deployed on Vercel.
+React + Vite frontend for the Synaptix Legal Metrology inspection system.
 
-## Owns
-- Camera capture / image upload screen (mobile-responsive, PWA-installable)
-- Validation visualizer (bounding boxes over detected fields, pass/fail highlight)
-- Inspector dashboard (past inspections, filters, search)
-- History view + PDF/report download
+## Run locally
 
-## Rule
-Talks **only** to the FastAPI backend (`VITE_API_BASE_URL`). Never calls
-OCR, CV, or Supabase directly from the client.
-
-## Suggested structure
-```
-frontend/
-├── src/
-│   ├── pages/        # Scan, Dashboard, History, InspectionDetail
-│   ├── components/   # UploadCard, BBoxOverlay, ComplianceBadge, ReportButton
-│   ├── api/          # thin fetch wrapper around backend endpoints
-│   └── App.jsx
-├── public/
-├── index.html
-├── vite.config.js
-└── package.json
+```powershell
+cd frontend
+npm install
+npm run dev
 ```
 
-## Day 1 goal
-Basic screen that POSTs an image to `/api/inspect` and renders the raw JSON
-response — proves the frontend↔backend wire is live before anything else
-is built.
+The Vite development server proxies `/api` to `http://localhost:8000`. Start the FastAPI app from the repository root in another terminal:
+
+```powershell
+uvicorn backend.main:app --reload --port 8000
+```
+
+For a deployed backend, copy `.env.example` to `.env` and set `VITE_API_BASE_URL` to the API origin, for example `https://api.example.com`.
+
+## Backend connection points
+
+- `POST /api/auth/login` JSON: `email`, `password`
+- `POST /api/auth/signup` JSON: `email`, `password`, `full_name`, `role`
+- `POST /api/inspect` multipart form: `file`, optional `product_name`, optional `category`
+- `GET /api/dashboard/stats`
+- `GET /api/inspections?page=1&limit=10&status=PASS&search=rice`
+- `GET /api/inspections/{inspection_id}`
+- `GET /api/report/{inspection_id}`
+
+When the backend is unreachable, the UI shows a clearly labelled sample-data mode so the screens can be developed before the API is ready.
