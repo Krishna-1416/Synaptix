@@ -38,6 +38,8 @@ class VisualChecks(BaseModel):
     readability: Optional[str] = None
     font_height: Optional[float] = None
     placement: Optional[str] = None
+    dpi: Optional[float] = None
+    overlay_image: Optional[str] = None
 
 
 class ComplianceResult(BaseModel):

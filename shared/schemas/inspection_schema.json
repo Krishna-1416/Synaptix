@@ -54,7 +54,9 @@
       "properties": {
         "readability": { "type": ["string", "null"] },
         "font_height": { "type": ["number", "null"] },
-        "placement": { "type": ["string", "null"] }
+        "placement": { "type": ["string", "null"] },
+        "dpi": { "type": ["number", "null"] },
+        "overlay_image": { "type": ["string", "null"] }
       }
     },
     "compliance": {
