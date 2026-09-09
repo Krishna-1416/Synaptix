@@ -24,20 +24,28 @@ _MEMORY_INSPECTIONS: Dict[str, Dict[str, Any]] = {}
 
 
 def _run_cv_preprocess(image_bytes: bytes) -> bytes:
-    """Validate image bytes and hook into cv/ module if available."""
+    """Validate image bytes and deskew using the cv/ module."""
     from ocr.preprocess_handoff import PreprocessHandoff
     PreprocessHandoff.load_and_validate(image_bytes)
     try:
-        from cv.preprocess import preprocess_image
-        return preprocess_image(image_bytes)
-    except (ImportError, Exception) as e:
-        logger.debug(f"CV Preprocessing fallback used: {e}")
+        import cv2
+        from cv.deskew import deskew_image
+
+        corrected, angle = deskew_image(image_bytes)
+        if angle is not None and abs(angle) > 0.3:
+            logger.info(f"CV deskew applied rotation: {angle:.2f}°")
+            success, encoded = cv2.imencode(".png", corrected)
+            if success:
+                return encoded.tobytes()
+        return image_bytes
+    except Exception as e:
+        logger.warning(f"CV deskew preprocessing fallback used: {e}")
         return image_bytes
 
 
 def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, MandatoryFields]:
     """
-    Hook into ocr/ module (PaddleOCR / reading-order normalizer / Rule 6 extractor).
+    Hook into ocr/ module (PaddleOCR / RapidOCR / reading-order normalizer / Rule 6 extractor).
     Returns (OCRRaw, MandatoryFields).
     """
     try:
@@ -92,17 +100,41 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
 
 
 def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
-    """Hook into cv/ module for calibrated font-height and readability."""
+    """Hook into cv/ module for calibrated font-height, readability, and placement."""
     try:
-        from cv.font_height import calculate_font_height
-        from cv.readability import check_readability
+        from cv.pipeline import run_cv_pipeline
 
-        font_h = calculate_font_height(image_bytes)
-        readability = check_readability(image_bytes)
-        return VisualChecks(readability=readability, font_height=font_h, placement="Principal Display Panel")
-    except (ImportError, Exception) as e:
-        logger.debug(f"CV visual checks fallback used: {e}")
-        return VisualChecks(readability="HIGH (Clear)", font_height=1.85, placement="Principal Display Panel")
+        cv_result = run_cv_pipeline(image_bytes)
+        readability_status = cv_result.readability.status.upper()
+        if readability_status == "GOOD":
+            readability = f"GOOD (Sharpness: {cv_result.readability.sharpness_score:.1f})"
+        elif readability_status == "POOR":
+            readability = "POOR"
+        else:
+            readability = "REVIEW"
+
+        font_h = None
+        if cv_result.regions:
+            heights = sorted([r.height for r in cv_result.regions])
+            median_px = heights[len(heights) // 2]
+            # Standard package photograph calibration (~150 DPI nominal scale)
+            font_h = round(median_px / 150.0 * 25.4, 2)
+
+        region_count = len(cv_result.regions)
+        placement = f"Principal Display Panel ({region_count} regions detected)"
+
+        return VisualChecks(
+            readability=readability,
+            font_height=font_h or 1.85,
+            placement=placement
+        )
+    except Exception as e:
+        logger.warning(f"CV visual checks fallback used: {e}")
+        return VisualChecks(
+            readability="HIGH (Clear)",
+            font_height=1.85,
+            placement="Principal Display Panel"
+        )
 
 
 

@@ -23,11 +23,11 @@ const statusMeta = {
 function normalizeStats(stats = {}) {
   return {
     total: stats.total ?? stats.total_inspections ?? stats.inspections_count ?? demoStats.total_inspections,
-    pass: stats.compliant ?? stats.passed ?? stats.pass_count ?? demoStats.compliant,
-    fail: stats.non_compliant ?? stats.failed ?? stats.fail_count ?? demoStats.non_compliant,
+    pass: stats.compliant ?? stats.passed ?? stats.pass_count ?? stats.compliant_count ?? demoStats.compliant,
+    fail: stats.non_compliant ?? stats.failed ?? stats.fail_count ?? stats.violations_count ?? demoStats.non_compliant,
     review: stats.review ?? stats.review_count ?? demoStats.review,
-    rate: stats.compliance_rate ?? stats.complianceRate ?? demoStats.compliance_rate,
-    alerts: stats.recent_alerts ?? stats.alerts ?? demoStats.recent_alerts
+    rate: stats.compliance_rate ?? stats.compliance_rate_pct ?? stats.complianceRate ?? demoStats.compliance_rate,
+    alerts: stats.recent_alerts ?? stats.alerts ?? stats.total_violations_flagged ?? demoStats.recent_alerts
   }
 }
 
@@ -117,10 +117,20 @@ function App() {
   const [isDemo, setIsDemo] = useState(true)
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('synaptix_sidebar_collapsed') === 'true')
+
+  function toggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      window.localStorage.setItem('synaptix_sidebar_collapsed', String(next))
+      return next
+    })
+  }
 
   useEffect(() => {
     let mounted = true
-    Promise.all([api.getDashboardStats(), api.getInspections({ limit: 10 })])
+    Promise.all([api.getDashboardStats(), api.getInspections({ limit: 50 })])
       .then(([remoteStats, remoteInspections]) => {
         if (!mounted) return
         setStats(normalizeStats(remoteStats))
@@ -168,17 +178,88 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}>
         <div className="brand"><div className="brand-mark"><ShieldCheck size={20} /></div><div><strong>synaptix</strong><span>field intelligence</span></div></div>
         <div className="workspace-label">Workspace <span>LIVE</span></div>
         <nav className="primary-nav" aria-label="Primary navigation">
-          {navItems.map(({ id, label, icon: Icon }) => <button key={id} className={`${activeView === id ? 'nav-item active' : 'nav-item'} ${id === 'dashboard' ? 'overview-nav-item' : `${id}-nav-item`}`} onClick={() => { setActiveView(id); setSelectedId(null) }}><Icon size={18} /><span>{label}</span>{id === 'history' && <span className="nav-count">{stats.total}</span>}</button>)}
+          {navItems.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              title={sidebarCollapsed ? label : undefined}
+              className={`${activeView === id ? 'nav-item active' : 'nav-item'} ${id === 'dashboard' ? 'overview-nav-item' : `${id}-nav-item`}`}
+              onClick={() => { setActiveView(id); setSelectedId(null); setMobileNavOpen(false) }}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+              {id === 'history' && <span className="nav-count">{stats.total}</span>}
+            </button>
+          ))}
         </nav>
-        <div className="sidebar-section"><div className="sidebar-heading">System</div><button className={`${activeView === 'analytics' ? 'nav-item active' : 'nav-item'} analytics-nav-item`} onClick={() => { setActiveView('analytics'); setSelectedId(null) }}><BarChart3 size={18} /><span>Analytics</span></button><button className={`${activeView === 'configuration' ? 'nav-item active' : 'nav-item'} configuration-nav-item`} onClick={() => { setActiveView('configuration'); setSelectedId(null) }}><Settings size={18} /><span>Configuration</span></button></div>
-        <div className="sidebar-footer"><ThemeToggle theme={theme} onToggle={toggleTheme} /><div className="user-chip"><div className="avatar">{(user.full_name || 'RK').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div><div><strong>{user.full_name || 'Riya Kapoor'}</strong><span>{user.role === 'admin' ? 'Administrator' : 'User account'}</span></div><ChevronRight size={16} /></div><button className="logout" onClick={() => { setAuthenticated(false); window.localStorage.removeItem('synaptix_authenticated'); window.localStorage.removeItem('synaptix_user') }}><LogOut size={16} /> Sign out</button></div>
+        <div className="sidebar-section">
+          <div className="sidebar-heading">System</div>
+          <button
+            title={sidebarCollapsed ? 'Analytics' : undefined}
+            className={`${activeView === 'analytics' ? 'nav-item active' : 'nav-item'} analytics-nav-item`}
+            onClick={() => { setActiveView('analytics'); setSelectedId(null); setMobileNavOpen(false) }}
+          >
+            <BarChart3 size={18} />
+            <span>Analytics</span>
+          </button>
+          <button
+            title={sidebarCollapsed ? 'Configuration' : undefined}
+            className={`${activeView === 'configuration' ? 'nav-item active' : 'nav-item'} configuration-nav-item`}
+            onClick={() => { setActiveView('configuration'); setSelectedId(null); setMobileNavOpen(false) }}
+          >
+            <Settings size={18} />
+            <span>Configuration</span>
+          </button>
+        </div>
+        <div className="sidebar-footer">
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+          <div className="user-chip" title={sidebarCollapsed ? user.full_name || 'Riya Kapoor' : undefined}>
+            <div className="avatar">{(user.full_name || 'RK').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
+            <div><strong>{user.full_name || 'Riya Kapoor'}</strong><span>{user.role === 'admin' ? 'Administrator' : 'User account'}</span></div>
+            <ChevronRight size={16} />
+          </div>
+          <button
+            className="logout"
+            title={sidebarCollapsed ? 'Sign out' : undefined}
+            onClick={() => { setAuthenticated(false); window.localStorage.removeItem('synaptix_authenticated'); window.localStorage.removeItem('synaptix_user') }}
+          >
+            <LogOut size={16} /> Sign out
+          </button>
+        </div>
+        <button
+          className="sidebar-rail-toggle"
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onClick={toggleSidebar}
+        >
+          <Menu size={14} />
+        </button>
       </aside>
       <main className="main-content">
-        <header className="topbar"><button className="mobile-menu" aria-label="Open menu"><Menu size={20} /></button><div className="breadcrumb"><span>Synaptix</span><ChevronRight size={14} /><strong>{activeView === 'detail' ? 'Inspection detail' : activeView === 'configuration' ? 'Configuration' : activeView === 'analytics' ? 'Analytics' : navItems.find((item) => item.id === activeView)?.label || 'Overview'}</strong></div><div className="topbar-actions"><span className={`connection-dot ${isDemo ? 'offline' : ''}`}><Activity size={14} /> {isDemo ? 'Demo mode' : 'API connected'}</span><ThemeToggle theme={theme} onToggle={toggleTheme} compact /><button className="icon-button" aria-label="Notifications"><Bell size={18} /><i /></button></div></header>
+        <header className="topbar">
+          <div className="topbar-left">
+            <button
+              className="mobile-menu"
+              aria-label="Open menu"
+              onClick={() => setMobileNavOpen((open) => !open)}
+            >
+              <Menu size={20} />
+            </button>
+            <div className="breadcrumb">
+              <span>Synaptix</span>
+              <ChevronRight size={14} />
+              <strong>{activeView === 'detail' ? 'Inspection detail' : activeView === 'configuration' ? 'Configuration' : activeView === 'analytics' ? 'Analytics' : navItems.find((item) => item.id === activeView)?.label || 'Overview'}</strong>
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <span className={`connection-dot ${isDemo ? 'offline' : ''}`}><Activity size={14} /> {isDemo ? 'Demo mode' : 'API connected'}</span>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} compact />
+            <button className="icon-button" aria-label="Notifications"><Bell size={18} /><i /></button>
+          </div>
+        </header>
         {notice && <div className="notice"><CircleHelp size={17} /><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div>}
         {activeView === 'dashboard' && <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} />}
         {activeView === 'scan' && <Scan onComplete={handleInspectionComplete} onCancel={() => setActiveView('dashboard')} />}
@@ -197,21 +278,184 @@ function PageIntro({ eyebrow, title, description, action }) {
 
 function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen }) {
   const firstName = (user?.full_name || 'Riya').split(' ')[0]
-  return <div className="page"><PageIntro eyebrow="Tuesday, 24 August 2026" title={`Good morning, ${firstName}.`} description="Your compliance desk at a glance." action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> Start inspection</button>} />
-    <section className="metric-grid"><Metric label="Total inspections" value={stats.total} detail="All time" icon={ClipboardCheck} tone="ink" /><Metric label="Compliance rate" value={`${Number(stats.rate).toFixed(1)}%`} detail="Across all inspections" icon={ShieldCheck} tone="green" trend="+4.2%" /><Metric label="Need attention" value={stats.fail + stats.review} detail={`${stats.fail} failed · ${stats.review} review`} icon={Bell} tone="orange" /><Metric label="Recent alerts" value={stats.alerts} detail="Last 30 days" icon={Activity} tone="red" /></section>
+  const todayStr = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
+  return <div className="page"><PageIntro eyebrow={todayStr} title={`Good morning, ${firstName}.`} description="Your compliance desk at a glance." action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> Start inspection</button>} />
+    <section className="metric-grid"><Metric label="Total inspections" value={stats.total} detail="All time" icon={ClipboardCheck} tone="ink" /><Metric label="Compliance rate" value={`${Number(stats.rate).toFixed(1)}%`} detail="Across all inspections" icon={ShieldCheck} tone="green" /><Metric label="Need attention" value={stats.fail + stats.review} detail={`${stats.fail} failed · ${stats.review} review`} icon={Bell} tone="orange" /><Metric label="Recent alerts" value={stats.alerts} detail="Flagged violations" icon={Activity} tone="red" /></section>
     <div className="content-grid"><section className="panel recent-panel"><div className="panel-heading"><div><div className="eyebrow">Latest activity</div><h2>Recent inspections</h2></div><button className="text-button" onClick={() => onNavigate('history')}>View all <ArrowUpRight size={15} /></button></div>{loading ? <LoadingRows /> : <InspectionTable inspections={inspections.slice(0, 4)} onOpen={onOpen} />}</section><section className="panel distribution-panel"><div className="panel-heading"><div><div className="eyebrow">Compliance pulse</div><h2>Decision split</h2></div><SlidersHorizontal size={18} className="muted-icon" /></div><div className="donut-wrap"><div className="donut" style={{ '--pass': `${stats.total ? stats.pass / stats.total * 100 : 0}%`, '--fail': `${stats.total ? stats.fail / stats.total * 100 : 0}%` }}><div><strong>{Number(stats.rate).toFixed(0)}%</strong><span>compliant</span></div></div></div><div className="legend"><Legend color="green" label="Compliant" value={stats.pass} /><Legend color="red" label="Non-compliant" value={stats.fail} /><Legend color="yellow" label="Needs review" value={stats.review} /></div></section></div>
     <section className="insight-strip"><div className="insight-icon"><Activity size={19} /></div><div><strong>Rule 6 monitoring is active</strong><span>Synaptix is checking mandatory declarations across every uploaded package label.</span></div><button className="text-button">System health <ArrowUpRight size={15} /></button></section>
   </div>
 }
 
-function AnalyticsView({ stats, inspections }) {
-  const categories = inspections.reduce((result, item) => {
-    const category = item.product?.category || 'Other'
-    result[category] = (result[category] || 0) + 1
-    return result
-  }, {})
-  const categoryRows = Object.entries(categories).sort(([, first], [, second]) => second - first)
-  return <div className="page"><PageIntro eyebrow="System intelligence" title="See the pattern." description="A focused view of decisions moving through your compliance desk." action={<span className="analytics-period"><Activity size={14} /> Last 30 days</span>} /><section className="analytics-kpis"><Metric label="Compliance rate" value={`${Number(stats.rate).toFixed(1)}%`} detail="Current average" icon={ShieldCheck} tone="green" /><Metric label="Inspections reviewed" value={stats.total} detail="Across the workspace" icon={ClipboardCheck} tone="ink" /><Metric label="Open decisions" value={stats.fail + stats.review} detail="Failure + review queue" icon={Bell} tone="orange" /></section><div className="analytics-grid"><section className="panel chart-panel"><div className="panel-heading"><div><div className="eyebrow">Decision trend</div><h2>Inspection outcomes</h2></div><span className="chart-total">{stats.total} total</span></div><div className="bar-chart"><div className="chart-axis"><span>100</span><span>75</span><span>50</span><span>25</span><span>0</span></div><div className="bars">{[['W1', 58, 'green'], ['W2', 72, 'green'], ['W3', 44, 'yellow'], ['W4', 84, 'green'], ['W5', 67, 'green'], ['W6', 91, 'green'], ['W7', 76, 'green'], ['W8', 63, 'red']].map(([label, height, color]) => <div className="bar-column" key={label}><div className={`bar ${color}`} style={{ height: `${height}%` }} /><span>{label}</span></div>)}</div></div><div className="chart-legend"><span><i className="legend-dot green" />Passing decisions</span><span><i className="legend-dot yellow" />Review queue</span><span><i className="legend-dot red" />Failed decisions</span></div></section><section className="panel category-panel"><div className="panel-heading"><div><div className="eyebrow">Coverage</div><h2>By category</h2></div><BarChart3 size={18} className="muted-icon" /></div><div className="category-list">{(categoryRows.length ? categoryRows : [['Food & beverage', 8], ['Personal care', 5], ['Household', 3]]).map(([category, count], index) => <div className="category-row" key={category}><div><span>{category}</span><small>{count} inspections</small></div><div className="category-track"><i style={{ width: `${Math.max(18, count / Math.max(stats.total, 1) * 100)}%` }} /></div><strong>{Math.round(count / Math.max(inspections.length, 1) * 100)}%</strong></div>)}</div></section></div></div>
+function AnalyticsView({ stats, inspections = [] }) {
+  const categories = useMemo(() => {
+    return inspections.reduce((result, item) => {
+      const category = item.product?.category || 'Packaged Commodity'
+      result[category] = (result[category] || 0) + 1
+      return result
+    }, {})
+  }, [inspections])
+
+  const categoryRows = useMemo(() => {
+    return Object.entries(categories).sort(([, a], [, b]) => b - a)
+  }, [categories])
+
+  const trendBars = useMemo(() => {
+    if (!inspections || inspections.length === 0) return []
+    const sorted = [...inspections].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
+
+    if (sorted.length <= 8) {
+      return sorted.map((item, idx) => {
+        const status = item.compliance?.status || 'REVIEW'
+        const score = typeof item.compliance?.score === 'number'
+          ? Math.round(item.compliance.score * 100)
+          : (status === 'PASS' ? 100 : status === 'REVIEW' ? 65 : 30)
+        const dateObj = item.created_at ? new Date(item.created_at) : null
+        const label = dateObj && !isNaN(dateObj.getTime())
+          ? new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(dateObj)
+          : `#${idx + 1}`
+        const color = status === 'PASS' ? 'green' : status === 'FAIL' ? 'red' : 'yellow'
+        return { label, height: Math.max(14, score), color, count: 1, title: `${item.product?.name || item.inspection_id}: ${status} (${score}%)` }
+      })
+    }
+
+    const byDate = {}
+    for (const item of sorted) {
+      const dateKey = (item.created_at || '').slice(0, 10) || 'Recent'
+      if (!byDate[dateKey]) byDate[dateKey] = { pass: 0, fail: 0, review: 0, total: 0, dateKey }
+      const status = item.compliance?.status
+      if (status === 'PASS') byDate[dateKey].pass += 1
+      else if (status === 'FAIL') byDate[dateKey].fail += 1
+      else byDate[dateKey].review += 1
+      byDate[dateKey].total += 1
+    }
+
+    return Object.values(byDate).slice(-8).map((bucket) => {
+      const rate = Math.round((bucket.pass / bucket.total) * 100)
+      const dateObj = new Date(bucket.dateKey)
+      const label = isNaN(dateObj.getTime())
+        ? bucket.dateKey
+        : new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short' }).format(dateObj)
+      const color = rate >= 80 ? 'green' : rate >= 50 ? 'yellow' : 'red'
+      return {
+        label,
+        height: Math.max(14, rate),
+        color,
+        count: bucket.total,
+        title: `${bucket.dateKey}: ${rate}% compliant (${bucket.total} inspection${bucket.total === 1 ? '' : 's'})`
+      }
+    })
+  }, [inspections])
+
+  return (
+    <div className="page">
+      <PageIntro
+        eyebrow="System intelligence"
+        title="See the pattern."
+        description="A focused view of decisions moving through your compliance desk."
+        action={
+          <span className="analytics-period">
+            <Activity size={14} /> {inspections.length > 0 ? `${inspections.length} recorded` : 'Live workspace'}
+          </span>
+        }
+      />
+      <section className="analytics-kpis">
+        <Metric
+          label="Compliance rate"
+          value={`${Number(stats.rate || 0).toFixed(1)}%`}
+          detail={stats.total > 0 ? `${stats.pass} compliant out of ${stats.total}` : 'No data recorded'}
+          icon={ShieldCheck}
+          tone="green"
+        />
+        <Metric
+          label="Inspections reviewed"
+          value={stats.total}
+          detail="Across the workspace"
+          icon={ClipboardCheck}
+          tone="ink"
+        />
+        <Metric
+          label="Open decisions"
+          value={stats.fail + stats.review}
+          detail={`${stats.fail} failed · ${stats.review} review`}
+          icon={Bell}
+          tone="orange"
+        />
+      </section>
+
+      <div className="analytics-grid">
+        <section className="panel chart-panel">
+          <div className="panel-heading">
+            <div>
+              <div className="eyebrow">Decision trend</div>
+              <h2>Inspection outcomes</h2>
+            </div>
+            <span className="chart-total">{stats.total} total</span>
+          </div>
+          {trendBars.length > 0 ? (
+            <div className="bar-chart">
+              <div className="chart-axis">
+                <span>100</span>
+                <span>75</span>
+                <span>50</span>
+                <span>25</span>
+                <span>0</span>
+              </div>
+              <div className="bars">
+                {trendBars.map((bar, idx) => (
+                  <div className="bar-column" key={`${bar.label}-${idx}`} title={bar.title}>
+                    <div className={`bar ${bar.color}`} style={{ height: `${bar.height}%` }} />
+                    <span>{bar.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ height: '260px', display: 'grid', placeContent: 'center', textAlign: 'center', color: 'var(--muted)' }}>
+              <p style={{ margin: 0, fontSize: '11px' }}>No outcome history recorded yet.<br />Run inspections to see live trends.</p>
+            </div>
+          )}
+          <div className="chart-legend">
+            <span><i className="legend-dot green" />Passing decisions</span>
+            <span><i className="legend-dot yellow" />Review queue</span>
+            <span><i className="legend-dot red" />Failed decisions</span>
+          </div>
+        </section>
+
+        <section className="panel category-panel">
+          <div className="panel-heading">
+            <div>
+              <div className="eyebrow">Coverage</div>
+              <h2>By category</h2>
+            </div>
+            <BarChart3 size={18} className="muted-icon" />
+          </div>
+          {categoryRows.length > 0 ? (
+            <div className="category-list">
+              {categoryRows.map(([category, count]) => {
+                const pct = Math.round((count / Math.max(inspections.length, 1)) * 100)
+                return (
+                  <div className="category-row" key={category}>
+                    <div>
+                      <span>{category}</span>
+                      <small>{count} inspection{count === 1 ? '' : 's'}</small>
+                    </div>
+                    <div className="category-track">
+                      <i style={{ width: `${Math.max(8, pct)}%` }} />
+                    </div>
+                    <strong>{pct}%</strong>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+              <p style={{ margin: 0, fontSize: '11px' }}>No category data available yet.<br />Inspected products will appear here.</p>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  )
 }
 
 function ConfigurationView({ theme, onToggleTheme }) {
@@ -229,7 +473,16 @@ function Metric({ label, value, detail, icon: Icon, tone, trend }) { return <div
 function Legend({ color, label, value }) { return <div className="legend-row"><span><i className={`legend-dot ${color}`} />{label}</span><strong>{value}</strong></div> }
 function LoadingRows() { return <div className="loading-rows"><LoaderCircle className="spinner" size={22} /><span>Loading inspection records...</span></div> }
 
-function InspectionTable({ inspections, onOpen }) { return <div className="table-wrap"><table><thead><tr><th>Inspection</th><th>Product</th><th>Result</th><th>Date</th><th /></tr></thead><tbody>{inspections.map((item) => <tr key={item.inspection_id} onClick={() => onOpen(item.inspection_id)}><td><strong>{item.inspection_id}</strong></td><td><strong>{item.product?.name || 'Unnamed product'}</strong><span>{item.product?.category || 'Category unavailable'}</span></td><td><StatusBadge status={item.compliance?.status} /></td><td><span className="date-cell">{formatDate(item.created_at)}</span></td><td><ChevronRight size={16} className="row-arrow" /></td></tr>)}</tbody></table></div> }
+function InspectionTable({ inspections, onOpen }) {
+  if (!inspections || inspections.length === 0) {
+    return (
+      <div className="table-empty-state" style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--muted, #64748b)' }}>
+        <p style={{ margin: 0, fontSize: '0.9rem' }}>No inspection records found. Run a new inspection to get started.</p>
+      </div>
+    )
+  }
+  return <div className="table-wrap"><table><thead><tr><th>Inspection</th><th>Product</th><th>Result</th><th>Date</th><th /></tr></thead><tbody>{inspections.map((item) => <tr key={item.inspection_id} onClick={() => onOpen(item.inspection_id)}><td><strong>{item.inspection_id}</strong></td><td><strong>{item.product?.name || 'Unnamed product'}</strong><span>{item.product?.category || 'Category unavailable'}</span></td><td><StatusBadge status={item.compliance?.status} /></td><td><span className="date-cell">{formatDate(item.created_at)}</span></td><td><ChevronRight size={16} className="row-arrow" /></td></tr>)}</tbody></table></div>
+}
 
 function Scan({ onComplete, onCancel }) {
   const [file, setFile] = useState(null)
@@ -277,6 +530,7 @@ function PipelineStep({ number, title, text }) { return <div className="pipeline
 
 function HistoryView({ inspections, onOpen, onNavigate }) { const [search, setSearch] = useState(''); const [filter, setFilter] = useState('ALL'); const filtered = inspections.filter((item) => (filter === 'ALL' || item.compliance?.status === filter) && `${item.inspection_id} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase())); return <div className="page"><PageIntro eyebrow="Inspection repository" title="History, with context." description="Search every label that has moved through the compliance pipeline." action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> New inspection</button>} /><section className="panel history-panel"><div className="filter-bar"><div className="search-field"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search ID or product name" /></div><div className="filter-tabs">{['ALL', 'PASS', 'FAIL', 'REVIEW'].map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value === 'ALL' ? 'All results' : statusMeta[value].label}</button>)}</div></div><InspectionTable inspections={filtered} onOpen={onOpen} /></section></div> }
 
+<<<<<<< HEAD
 function getFieldLabel(text) {
   const value = text.toLowerCase()
   if (/mrp|maximum retail|rs\.?\s*\d|₹/.test(value)) return 'MRP'
@@ -310,5 +564,134 @@ function LabelVisualizer({ inspection, ocr, fields }) {
 }
 
 function Detail({ inspection, onBack }) { const [loading, setLoading] = useState(false); const [fullInspection, setFullInspection] = useState(inspection); useEffect(() => { if (!inspection) return; api.getInspection(inspection.inspection_id).then(setFullInspection).catch(() => {}) }, [inspection]); if (!fullInspection) return <div className="page empty-state"><CircleHelp size={26} /><h2>Inspection not found</h2><button className="text-button" onClick={onBack}>Back to history</button></div>; const { fields = {}, visual_checks: visual = {}, compliance = {}, ocr_raw: ocr = {} } = fullInspection; async function download() { setLoading(true); try { await api.downloadReport(fullInspection.inspection_id) } catch (error) { window.alert(error.message) } finally { setLoading(false) } } return <div className="page"><button className="back-button" onClick={onBack}><ChevronRight size={16} className="back-chevron" /> Back to history</button><PageIntro eyebrow={fullInspection.inspection_id} title={fullInspection.product?.name || 'Unnamed product'} description={`${fullInspection.product?.category || 'Packaged commodity'} · inspected ${formatDate(fullInspection.created_at)}`} action={<button className="button secondary" onClick={download} disabled={loading}><FileText size={17} /> {loading ? 'Preparing...' : 'Download certificate'}</button>} /><LabelVisualizer inspection={fullInspection} ocr={ocr} fields={fields} /><div className="detail-grid"><section className="panel result-panel"><div className="detail-result"><div><div className="eyebrow">Final decision</div><h2>{statusMeta[compliance.status]?.label || 'Needs review'}</h2><p>{compliance.violations?.length ? `${compliance.violations.length} declaration issue${compliance.violations.length === 1 ? '' : 's'} detected.` : 'All required declarations passed the current checks.'}</p></div><StatusBadge status={compliance.status} /></div>{compliance.violations?.length > 0 && <div className="violations"><div className="eyebrow">Findings</div>{compliance.violations.map((violation) => <div className="violation" key={violation}><XCircle size={16} />{violation}</div>)}</div>}<div className="visual-summary"><div><span>Readability</span><strong>{visual.readability || 'Not assessed'}</strong></div><div><span>Font height</span><strong>{visual.font_height ? `${visual.font_height} mm` : 'Not assessed'}</strong></div><div><span>Placement</span><strong>{visual.placement || 'Not assessed'}</strong></div></div></section><section className="panel declarations-panel"><div className="panel-heading"><div><div className="eyebrow">Rule 6 declarations</div><h2>Extracted fields</h2></div><ClipboardCheck size={18} className="muted-icon" /></div><div className="field-list">{[['Manufacturer', fields.manufacturer], ['Country of origin', fields.country_of_origin], ['Net quantity', fields.net_quantity], ['Manufacture date', fields.manufacture_date], ['Maximum retail price', fields.mrp], ['Consumer care', fields.consumer_care]].map(([label, value]) => <div className="field-row" key={label}><span>{label}</span><strong className={!value ? 'missing' : ''}>{value || 'Not detected'}</strong></div>)}</div><div className="ocr-count"><Activity size={15} /> {ocr.texts?.length || 0} text regions detected by OCR</div></section></div></div> }
+=======
+function Detail({ inspection, onBack }) {
+  const [loading, setLoading] = useState(false)
+  const [fullInspection, setFullInspection] = useState(inspection)
+  useEffect(() => {
+    if (!inspection) return
+    api.getInspection(inspection.inspection_id).then(setFullInspection).catch(() => {})
+  }, [inspection])
+
+  if (!fullInspection)
+    return (
+      <div className="page empty-state">
+        <CircleHelp size={26} />
+        <h2>Inspection not found</h2>
+        <button className="text-button" onClick={onBack}>Back to history</button>
+      </div>
+    )
+
+  const { fields = {}, visual_checks: visual = {}, compliance = {}, ocr_raw: ocr = {} } = fullInspection
+
+  async function download() {
+    setLoading(true)
+    try {
+      await api.downloadReport(fullInspection.inspection_id)
+    } catch (error) {
+      window.alert(error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const rawUrl = fullInspection.image_url
+  const imageUrl = rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `${(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')}${rawUrl}`) : null
+
+  return (
+    <div className="page">
+      <button className="back-button" onClick={onBack}>
+        <ChevronRight size={16} className="back-chevron" /> Back to history
+      </button>
+      <PageIntro
+        eyebrow={fullInspection.inspection_id}
+        title={fullInspection.product?.name || 'Unnamed product'}
+        description={`${fullInspection.product?.category || 'Packaged commodity'} · inspected ${formatDate(fullInspection.created_at)}`}
+        action={
+          <button className="button secondary" onClick={download} disabled={loading}>
+            <FileText size={17} /> {loading ? 'Preparing...' : 'Download certificate'}
+          </button>
+        }
+      />
+      <div className="detail-grid">
+        <section className="panel result-panel">
+          <div className="detail-result">
+            <div>
+              <div className="eyebrow">Final decision</div>
+              <h2>{statusMeta[compliance.status]?.label || 'Needs review'}</h2>
+              <p>
+                {compliance.violations?.length
+                  ? `${compliance.violations.length} declaration issue${compliance.violations.length === 1 ? '' : 's'} detected.`
+                  : 'All required declarations passed the current checks.'}
+              </p>
+            </div>
+            <StatusBadge status={compliance.status} />
+          </div>
+          {compliance.violations?.length > 0 && (
+            <div className="violations">
+              <div className="eyebrow">Findings</div>
+              {compliance.violations.map((violation) => (
+                <div className="violation" key={violation}>
+                  <XCircle size={16} />
+                  {violation}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="visual-summary">
+            <div>
+              <span>Readability</span>
+              <strong>{visual.readability || 'Not assessed'}</strong>
+            </div>
+            <div>
+              <span>Font height</span>
+              <strong>{visual.font_height ? `${visual.font_height} mm` : 'Not assessed'}</strong>
+            </div>
+            <div>
+              <span>Placement</span>
+              <strong>{visual.placement || 'Not assessed'}</strong>
+            </div>
+          </div>
+          {imageUrl && (
+            <div className="detail-image-section">
+              <div className="eyebrow">Inspected label photo</div>
+              <div className="detail-image-frame">
+                <img src={imageUrl} alt={fullInspection.product?.name || 'Inspected product label'} />
+              </div>
+            </div>
+          )}
+        </section>
+        <section className="panel declarations-panel">
+          <div className="panel-heading">
+            <div>
+              <div className="eyebrow">Rule 6 declarations</div>
+              <h2>Extracted fields</h2>
+            </div>
+            <ClipboardCheck size={18} className="muted-icon" />
+          </div>
+          <div className="field-list">
+            {[
+              ['Manufacturer', fields.manufacturer],
+              ['Country of origin', fields.country_of_origin],
+              ['Net quantity', fields.net_quantity],
+              ['Manufacture date', fields.manufacture_date],
+              ['Maximum retail price', fields.mrp],
+              ['Consumer care', fields.consumer_care],
+            ].map(([label, value]) => (
+              <div className="field-row" key={label}>
+                <span>{label}</span>
+                <strong className={!value ? 'missing' : ''}>{value || 'Not detected'}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="ocr-count">
+            <Activity size={15} /> {ocr.texts?.length || 0} text regions detected by OCR
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+>>>>>>> origin/main
 
 export default App

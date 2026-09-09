@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 
-ImageInput = Union[np.ndarray, str]
+ImageInput = Union[np.ndarray, str, bytes, bytearray]
 
 
 @dataclass(frozen=True)
@@ -41,19 +41,27 @@ class PreprocessingConfig:
 
 
 def load_image(image: ImageInput) -> np.ndarray:
-    """Load an image path or validate an already-decoded NumPy image.
+    """Load an image path, raw image bytes, or validate an already-decoded NumPy image.
 
     Returns a copy so callers retain ownership of their original array.
     Raises ValueError for unreadable, empty, or unsupported images.
     """
-    if isinstance(image, str):
+    if isinstance(image, (bytes, bytearray)):
+        if len(image) == 0:
+            raise ValueError("image bytes are empty")
+        nparr = np.frombuffer(image, np.uint8)
+        loaded = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+        if loaded is None:
+            raise ValueError("Could not decode image from bytes")
+        image = loaded
+    elif isinstance(image, str):
         loaded = cv2.imread(image, cv2.IMREAD_UNCHANGED)
         if loaded is None:
             raise ValueError(f"Could not read image: {image}")
         image = loaded
 
     if not isinstance(image, np.ndarray):
-        raise ValueError("image must be a NumPy array or a readable image path")
+        raise ValueError("image must be a NumPy array, readable path, or valid bytes")
     if image.size == 0 or image.ndim not in (2, 3):
         raise ValueError("image must be a non-empty grayscale, BGR, or BGRA image")
     if image.ndim == 3 and image.shape[2] not in (3, 4):

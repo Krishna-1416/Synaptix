@@ -21,7 +21,10 @@ venv/
 /ml/checkpoints/
 /sample_data/*.jpg
 /sample_data/*.png
+/sample_data/real_samples/*.jpg
+/sample_data/real_samples/*.png
 !/sample_data/.gitkeep
+!/sample_data/real_samples/samples_manifest.json
 
 # Reports & generated evidence
 /reports/generated/
