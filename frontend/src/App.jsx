@@ -530,41 +530,6 @@ function PipelineStep({ number, title, text }) { return <div className="pipeline
 
 function HistoryView({ inspections, onOpen, onNavigate }) { const [search, setSearch] = useState(''); const [filter, setFilter] = useState('ALL'); const filtered = inspections.filter((item) => (filter === 'ALL' || item.compliance?.status === filter) && `${item.inspection_id} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase())); return <div className="page"><PageIntro eyebrow="Inspection repository" title="History, with context." description="Search every label that has moved through the compliance pipeline." action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> New inspection</button>} /><section className="panel history-panel"><div className="filter-bar"><div className="search-field"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search ID or product name" /></div><div className="filter-tabs">{['ALL', 'PASS', 'FAIL', 'REVIEW'].map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value === 'ALL' ? 'All results' : statusMeta[value].label}</button>)}</div></div><InspectionTable inspections={filtered} onOpen={onOpen} /></section></div> }
 
-<<<<<<< HEAD
-function getFieldLabel(text) {
-  const value = text.toLowerCase()
-  if (/mrp|maximum retail|rs\.?\s*\d|₹/.test(value)) return 'MRP'
-  if (/net|\b\d+(\.\d+)?\s*(kg|g|ml|l|mg)\b/.test(value)) return 'Net Qty'
-  if (/manufactur|packed by|brand/.test(value)) return 'Manufacturer'
-  if (/origin|made in|country/.test(value)) return 'Origin'
-  if (/date|mfg|exp|best before/.test(value)) return 'Date'
-  if (/care|consumer|helpline|contact|phone/.test(value)) return 'Consumer Care'
-  return 'Detected text'
-}
-
-function LabelVisualizer({ inspection, ocr, fields }) {
-  const imageRef = useRef(null)
-  const [dimensions, setDimensions] = useState({ width: 1, height: 1 })
-  const imageUrl = inspection.image_url || inspection.image?.url
-  const texts = ocr.texts || []
-  function boxStyle(bbox = []) {
-    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = bbox
-    const unit = Math.max(...bbox) <= 1 ? 'ratio' : 'pixel'
-    const left = unit === 'ratio' ? x1 * 100 : x1 / dimensions.width * 100
-    const top = unit === 'ratio' ? y1 * 100 : y1 / dimensions.height * 100
-    const boxWidth = x2 > x1 ? x2 - x1 : x2
-    const boxHeight = y2 > y1 ? y2 - y1 : y2
-    const width = unit === 'ratio' ? Math.max(boxWidth * 100, 5) : Math.max(boxWidth / dimensions.width * 100, 5)
-    const height = unit === 'ratio' ? Math.max(boxHeight * 100, 4) : Math.max(boxHeight / dimensions.height * 100, 4)
-    return { left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }
-  }
-  const required = [['MRP', fields.mrp], ['Net Qty', fields.net_quantity], ['Manufacturer', fields.manufacturer], ['Consumer Care', fields.consumer_care]]
-  if (!imageUrl) return <section className="panel visualizer-panel visualizer-empty"><div className="visualizer-heading"><div><div className="eyebrow">Validation visualizer</div><h2>Label evidence</h2></div><ScanLine size={18} className="muted-icon" /></div><div className="visualizer-placeholder"><ImagePlus size={25} /><strong>Source image unavailable</strong><span>Bounding boxes will appear here when the backend returns `image_url` and OCR coordinates.</span></div></section>
-  return <section className="panel visualizer-panel"><div className="visualizer-heading"><div><div className="eyebrow">Validation visualizer</div><h2>Label evidence</h2><p>OCR regions and declaration checks over the scanned image.</p></div><span className="visualizer-legend"><i className="box-pass" /> Detected <i className="box-missing" /> Missing</span></div><div className="visualizer-stage"><img ref={imageRef} src={imageUrl} alt="Scanned product label" onLoad={(event) => setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} />{texts.filter((item) => item.bbox?.length >= 4).map((item, index) => <div className={`bbox ${item.text ? 'detected' : 'missing'}`} style={boxStyle(item.bbox)} key={`${item.text}-${index}`}><span>{getFieldLabel(item.text)}</span></div>)}</div><div className="visualizer-fields">{required.map(([label, value]) => <div className={`visualizer-field ${value ? 'found' : 'missing'}`} key={label}>{value ? <Check size={14} /> : <CircleHelp size={14} />}<span>{label}</span><strong>{value || 'Not detected'}</strong></div>)}</div></section>
-}
-
-function Detail({ inspection, onBack }) { const [loading, setLoading] = useState(false); const [fullInspection, setFullInspection] = useState(inspection); useEffect(() => { if (!inspection) return; api.getInspection(inspection.inspection_id).then(setFullInspection).catch(() => {}) }, [inspection]); if (!fullInspection) return <div className="page empty-state"><CircleHelp size={26} /><h2>Inspection not found</h2><button className="text-button" onClick={onBack}>Back to history</button></div>; const { fields = {}, visual_checks: visual = {}, compliance = {}, ocr_raw: ocr = {} } = fullInspection; async function download() { setLoading(true); try { await api.downloadReport(fullInspection.inspection_id) } catch (error) { window.alert(error.message) } finally { setLoading(false) } } return <div className="page"><button className="back-button" onClick={onBack}><ChevronRight size={16} className="back-chevron" /> Back to history</button><PageIntro eyebrow={fullInspection.inspection_id} title={fullInspection.product?.name || 'Unnamed product'} description={`${fullInspection.product?.category || 'Packaged commodity'} · inspected ${formatDate(fullInspection.created_at)}`} action={<button className="button secondary" onClick={download} disabled={loading}><FileText size={17} /> {loading ? 'Preparing...' : 'Download certificate'}</button>} /><LabelVisualizer inspection={fullInspection} ocr={ocr} fields={fields} /><div className="detail-grid"><section className="panel result-panel"><div className="detail-result"><div><div className="eyebrow">Final decision</div><h2>{statusMeta[compliance.status]?.label || 'Needs review'}</h2><p>{compliance.violations?.length ? `${compliance.violations.length} declaration issue${compliance.violations.length === 1 ? '' : 's'} detected.` : 'All required declarations passed the current checks.'}</p></div><StatusBadge status={compliance.status} /></div>{compliance.violations?.length > 0 && <div className="violations"><div className="eyebrow">Findings</div>{compliance.violations.map((violation) => <div className="violation" key={violation}><XCircle size={16} />{violation}</div>)}</div>}<div className="visual-summary"><div><span>Readability</span><strong>{visual.readability || 'Not assessed'}</strong></div><div><span>Font height</span><strong>{visual.font_height ? `${visual.font_height} mm` : 'Not assessed'}</strong></div><div><span>Placement</span><strong>{visual.placement || 'Not assessed'}</strong></div></div></section><section className="panel declarations-panel"><div className="panel-heading"><div><div className="eyebrow">Rule 6 declarations</div><h2>Extracted fields</h2></div><ClipboardCheck size={18} className="muted-icon" /></div><div className="field-list">{[['Manufacturer', fields.manufacturer], ['Country of origin', fields.country_of_origin], ['Net quantity', fields.net_quantity], ['Manufacture date', fields.manufacture_date], ['Maximum retail price', fields.mrp], ['Consumer care', fields.consumer_care]].map(([label, value]) => <div className="field-row" key={label}><span>{label}</span><strong className={!value ? 'missing' : ''}>{value || 'Not detected'}</strong></div>)}</div><div className="ocr-count"><Activity size={15} /> {ocr.texts?.length || 0} text regions detected by OCR</div></section></div></div> }
-=======
 function Detail({ inspection, onBack }) {
   const [loading, setLoading] = useState(false)
   const [fullInspection, setFullInspection] = useState(inspection)
@@ -692,6 +657,5 @@ function Detail({ inspection, onBack }) {
     </div>
   )
 }
->>>>>>> origin/main
 
 export default App
