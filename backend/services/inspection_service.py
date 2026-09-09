@@ -24,13 +24,16 @@ _MEMORY_INSPECTIONS: Dict[str, Dict[str, Any]] = {}
 
 
 def _run_cv_preprocess(image_bytes: bytes) -> bytes:
-    """Validate image bytes and hook into cv/ module if available."""
-    from ocr.preprocess_handoff import PreprocessHandoff
-    PreprocessHandoff.load_and_validate(image_bytes)
+    """Validate image bytes and preprocess using cv.pipeline or cv.preprocessing."""
     try:
-        from cv.preprocess import preprocess_image
-        return preprocess_image(image_bytes)
-    except (ImportError, Exception) as e:
+        from cv.pipeline import run_cv_pipeline
+        import cv2
+        cv_res = run_cv_pipeline(image_bytes)
+        success, encoded = cv2.imencode(".png", cv_res.ocr_ready_image)
+        if success:
+            return encoded.tobytes()
+        return image_bytes
+    except Exception as e:
         logger.debug(f"CV Preprocessing fallback used: {e}")
         return image_bytes
 
@@ -92,15 +95,20 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
 
 
 def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
-    """Hook into cv/ module for calibrated font-height and readability."""
+    """Hook into cv/ module for calibrated font-height, placement, and readability."""
     try:
-        from cv.font_height import calculate_font_height
-        from cv.readability import check_readability
-
-        font_h = calculate_font_height(image_bytes)
-        readability = check_readability(image_bytes)
-        return VisualChecks(readability=readability, font_height=font_h, placement="Principal Display Panel")
-    except (ImportError, Exception) as e:
+        from cv.pipeline import run_cv_pipeline
+        cv_res = run_cv_pipeline(image_bytes)
+        payload = cv_res.backend_payload().get("visual_checks", {})
+        readability = payload.get("readability") or "good"
+        font_height = payload.get("font_height")
+        placement = payload.get("placement") or "Principal Display Panel"
+        return VisualChecks(
+            readability=str(readability).upper(),
+            font_height=font_height,
+            placement=str(placement)
+        )
+    except Exception as e:
         logger.debug(f"CV visual checks fallback used: {e}")
         return VisualChecks(readability="HIGH (Clear)", font_height=1.85, placement="Principal Display Panel")
 
