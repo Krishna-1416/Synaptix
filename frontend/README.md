@@ -29,3 +29,9 @@ For a deployed backend, copy `.env.example` to `.env` and set `VITE_API_BASE_URL
 - `GET /api/report/{inspection_id}`
 
 When the backend is unreachable, the UI shows a clearly labelled sample-data mode so the screens can be developed before the API is ready.
+
+## Field capabilities
+
+- **Live camera capture:** the New inspection screen uses `getUserMedia` with the rear-facing camera preference, a label alignment viewfinder, and a capture button. The captured frame is converted to a JPEG `File` and sent through the same `/api/inspect` multipart request as a picked image.
+- **Validation visualizer:** inspection details render `ocr_raw.texts[].bbox` over `image_url` when the backend returns both. The overlay supports normalized coordinates and pixel coordinates, including the schema's `[x, y, width, height]` form, and lists detected or missing declarations below the image.
+- **Offline PWA shell:** `manifest.webmanifest`, `sw.js`, and the registration hook make the frontend installable and cache the app shell for field use. API requests still require a reachable backend to run new inspections.
