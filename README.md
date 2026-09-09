@@ -4,14 +4,13 @@ Automated packaging-compliance checker: scan a product label → OCR extracts
 mandatory declarations → rule engine validates against the Legal Metrology
 (Packaged Commodities) Rules, 2011 → compliance report + dashboard.
 
-## Team & Folder Ownership (6 members)
+## Team & Folder Ownership
 
 | Member Role | Folder Owned | Stack |
 |---|---|---|
 | Legal & Rules Engineer | `backend/rules/`, `shared/schemas/` | JSON Schema, FastAPI |
 | OCR Engineer | `ocr/` | PaddleOCR, Tesseract/EasyOCR, OpenCV |
-| Computer Vision Engineer | `cv/` | OpenCV, optional HF model |
-| ML / Data Engineer | `ml/` | Kaggle, Label Studio/CVAT, Hugging Face |
+| Computer Vision Engineer | `cv/` | OpenCV |
 | Backend Engineer | `backend/api/`, `backend/services/`, `backend/models/` | FastAPI, Supabase, ReportLab |
 | Frontend & Product Engineer | `frontend/` | React, Vite, Tailwind, Vercel |
 
