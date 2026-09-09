@@ -1,0 +1,19 @@
+{
+  "name": "Synaptix Inspector Console",
+  "short_name": "Synaptix",
+  "description": "Offline-ready legal metrology inspection console.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#121a16",
+  "theme_color": "#b8ebc1",
+  "icons": [
+    {
+      "src": "/synaptix-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
