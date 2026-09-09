@@ -1,5 +1,11 @@
-import os
+import sys
 from pathlib import Path
+
+# Ensure project root is in sys.path so 'backend', 'ocr', 'cv', and 'shared' are importable
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -79,4 +85,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=settings.PORT, reload=True)
+    uvicorn.run(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=settings.PORT,
+        reload=True,
+        app_dir=str(PROJECT_ROOT)
+    )

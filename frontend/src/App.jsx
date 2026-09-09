@@ -638,9 +638,11 @@ function Detail({ inspection, onBack }) {
             {[
               ['Manufacturer', fields.manufacturer],
               ['Country of origin', fields.country_of_origin],
+              ['Generic / Commodity name', fields.generic_name],
               ['Net quantity', fields.net_quantity],
               ['Manufacture date', fields.manufacture_date],
               ['Maximum retail price', fields.mrp],
+              ['Unit sale price (USP)', fields.unit_sale_price],
               ['Consumer care', fields.consumer_care],
             ].map(([label, value]) => (
               <div className="field-row" key={label}>

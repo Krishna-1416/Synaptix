@@ -127,9 +127,11 @@ def generate_compliance_pdf(inspection: InspectionResult) -> bytes:
     field_map = [
         ("Manufacturer / Packer Address", inspection.fields.manufacturer),
         ("Country of Origin", inspection.fields.country_of_origin),
+        ("Common / Generic Commodity Name", getattr(inspection.fields, "generic_name", None)),
         ("Net Quantity", inspection.fields.net_quantity),
         ("Date of Manufacture / Packing", inspection.fields.manufacture_date),
         ("Maximum Retail Price (MRP)", inspection.fields.mrp),
+        ("Unit Sale Price (USP)", getattr(inspection.fields, "unit_sale_price", None)),
         ("Consumer Care Details", inspection.fields.consumer_care),
     ]
 

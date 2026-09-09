@@ -42,9 +42,11 @@
       "properties": {
         "manufacturer": { "type": ["string", "null"] },
         "country_of_origin": { "type": ["string", "null"] },
+        "generic_name": { "type": ["string", "null"], "description": "Common or generic name of the commodity (Rule 6(1)(b))" },
         "net_quantity": { "type": ["string", "null"] },
         "manufacture_date": { "type": ["string", "null"] },
         "mrp": { "type": ["string", "null"] },
+        "unit_sale_price": { "type": ["string", "null"], "description": "Unit Sale Price e.g. Rs/g, Rs/ml (Rule 6(1)(m))" },
         "consumer_care": { "type": ["string", "null"] }
       }
     },
