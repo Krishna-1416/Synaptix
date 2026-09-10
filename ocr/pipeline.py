@@ -60,7 +60,7 @@ def run_ocr_pipeline(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> O
     )
 
     telemetry = OCRTelemetry(
-        engine_name="PaddleOCR-PP-OCRv4",
+        engine_name="RapidOCR-PP-OCRv4",
         inference_latency_ms=elapsed_ms,
         total_tokens_detected=len(tokens),
         mean_confidence=mean_conf,
