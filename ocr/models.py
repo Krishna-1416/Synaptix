@@ -31,6 +31,10 @@ class LegalMetrologyFields(BaseModel):
         default=None,
         description="Country of origin or assembly for imported/packaged commodities.",
     )
+    generic_name: Optional[str] = Field(
+        default=None,
+        description="Common or generic name of the commodity contained in the package (Rule 6(1)(b)).",
+    )
     net_quantity: Optional[str] = Field(
         default=None,
         description="Net quantity in standard SI metric units (weight, volume, or count/number).",
@@ -42,6 +46,10 @@ class LegalMetrologyFields(BaseModel):
     mrp: Optional[str] = Field(
         default=None,
         description="Maximum Retail Price inclusive of all taxes.",
+    )
+    unit_sale_price: Optional[str] = Field(
+        default=None,
+        description="Unit Sale Price e.g. Rs/g, Rs/ml, Rs/kg (Rule 6(1)(m)).",
     )
     consumer_care: Optional[str] = Field(
         default=None,

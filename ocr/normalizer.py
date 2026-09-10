@@ -54,6 +54,27 @@ class TokenNormalizer:
         if len(cleaned) == 1 and cleaned in cls.ISOLATED_NOISE_CHARS:
             return ""
 
+        # Normalize common OCR glyph confusions (e.g. O/D as 0 in metric weights and prices)
+        def _repl_unit(m: re.Match) -> str:
+            return m.group(1) + ("0" * len(m.group(2))) + m.group(3)
+
+        cleaned = re.sub(
+            r"(\b\d+)([ODod]+)(\s*(?:g|kg|gm|ml|l|ltr|pcs|units?|nos|n\b))",
+            _repl_unit,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+        def _repl_price(m: re.Match) -> str:
+            return re.sub(r"[ODod]", "0", m.group(0))
+
+        cleaned = re.sub(
+            r"(?:Rs\.?|₹|MRP)\s*[\dODod]+(?:\.[\dODod]+)?",
+            _repl_price,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
         return cleaned
 
     @classmethod

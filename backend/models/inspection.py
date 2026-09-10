@@ -28,9 +28,11 @@ class OCRRaw(BaseModel):
 class MandatoryFields(BaseModel):
     manufacturer: Optional[str] = None
     country_of_origin: Optional[str] = None
+    generic_name: Optional[str] = None
     net_quantity: Optional[str] = None
     manufacture_date: Optional[str] = None
     mrp: Optional[str] = None
+    unit_sale_price: Optional[str] = None
     consumer_care: Optional[str] = None
 
 
@@ -38,6 +40,8 @@ class VisualChecks(BaseModel):
     readability: Optional[str] = None
     font_height: Optional[float] = None
     placement: Optional[str] = None
+    dpi: Optional[float] = None
+    overlay_image: Optional[str] = None
 
 
 class ComplianceResult(BaseModel):

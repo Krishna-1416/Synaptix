@@ -56,13 +56,13 @@ class LegalFieldExtractor:
         [^\d]*                                                 # Delimiter
         (?P<value>\d+(?:\.\d+)?)                               # Numerical value
         \s*
-        (?P<unit>kg|g|gm|grams?|ml|l|ltr|litres?|N|units?|pcs|pieces|nos)\b # Legal SI units
+        (?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|N|units?|pcs|pieces|nos)\b # Legal SI units
         """,
         re.IGNORECASE | re.VERBOSE,
     )
     # Standalone fallback quantity if preceded without keyword (e.g., "500 g", "1.5 kg")
     RE_STANDALONE_QTY = re.compile(
-        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>kg|g|gm|grams?|ml|l|ltr|litres?|N|units?|pcs|pieces|nos)\b",
+        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|N|units?|pcs|pieces|nos)\b",
         re.IGNORECASE,
     )
 
@@ -121,6 +121,43 @@ class LegalFieldExtractor:
     RE_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
     RE_PHONE = re.compile(
         r"(?:(?:(?:\+?91[\-\s]?)?|0)?(?:1800|1860)[\-\s]?\d{2,4}[\-\s]?\d{3,4}|\b(?:\+?91[\-\s]?)?\d{10}\b|\b(?:\+?91[\-\s]?)?\d{2,5}[\-\s]\d{6,8}\b)"
+    )
+
+    # --------------------------------------------------------------------------
+    # 7. Common or Generic Name Patterns (Rule 6(1)(b))
+    # --------------------------------------------------------------------------
+    RE_GENERIC_KEYWORD = re.compile(
+        r"""
+        \b(?:COMMON\s*OR\s*GENERIC\s*NAME|GENERIC\s*NAME|NAME\s*OF\s*(?:THE\s*)?COMMODITY|COMMODITY|PRODUCT\s*NAME)\b
+        \s*[\:\-\.]\s*
+        (?P<name>[A-Za-z0-9\s,\-\(\)]+)
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    )
+    COMMON_COMMODITIES = [
+        "instant noodles", "noodles", "biscuits", "cookies", "crackers",
+        "milk chocolate", "chocolate", "butter", "pasteurized butter",
+        "potato chips", "chips", "namkeen", "moong dal", "bhujia",
+        "toned milk", "milk", "blended edible vegetable oil", "edible vegetable oil",
+        "edible oil", "vegetable oil", "sunflower oil", "mustard oil",
+        "wheat flour", "atta", "refined wheat flour", "maida",
+        "iodized salt", "salt", "pure honey", "honey", "tea", "coffee",
+        "detergent powder", "soap", "toothpaste", "shampoo"
+    ]
+
+    # --------------------------------------------------------------------------
+    # 8. Unit Sale Price Patterns (Rule 6(1)(m) - 2021/2022 Amendments)
+    # --------------------------------------------------------------------------
+    RE_USP = re.compile(
+        r"""
+        (?:(?:UNIT\s*SALE\s*PRICE|U\.?S\.?P\.?)\s*[\:\-\.]?\s*)?
+        (?:₹|Rs\.?|INR)?\s*
+        (?P<price>\d+(?:\.\d{1,2})?)
+        \s*(?:/-)?\s*
+        (?:/|per)\s*
+        (?P<unit>kg|g|gm|grams?|ml|l|ltr|litres?|pcs|pieces?|units?|nos|count|item|n)\b
+        """,
+        re.IGNORECASE | re.VERBOSE,
     )
 
     @classmethod
@@ -187,7 +224,7 @@ class LegalFieldExtractor:
             return "g"
         if u in ("kg", "kilogram", "kilograms"):
             return "kg"
-        if u in ("ml", "millilitre", "millilitres"):
+        if u in ("ml", "millilitre", "millilitres", "mi", "m1", "m|"):
             return "ml"
         if u in ("l", "ltr", "litre", "litres"):
             return "l"
@@ -322,9 +359,53 @@ class LegalFieldExtractor:
         return None
 
     @classmethod
+    def extract_generic_name(cls, lines: list[TextLine]) -> Optional[str]:
+        """Extract Common or Generic Name of the commodity (Rule 6(1)(b))."""
+        for line in lines:
+            text = line.text
+            match = cls.RE_GENERIC_KEYWORD.search(text)
+            if match:
+                cand = match.group("name").strip(" :.-,")
+                if len(cand) >= 3:
+                    cand_words = cand.split()
+                    if len(cand_words) > 8:
+                        cand = " ".join(cand_words[:8])
+                    return cand.title()
+
+        # Fallback 1: Check lines against common packaging commodities taxonomy
+        for line in lines:
+            text_lower = line.text.lower()
+            for commodity in sorted(cls.COMMON_COMMODITIES, key=len, reverse=True):
+                if re.search(r"\b" + re.escape(commodity) + r"\b", text_lower):
+                    return commodity.title()
+
+        # Fallback 2: Prominent non-statutory title line from upper portion
+        for line in lines[:3]:
+            text = line.text.strip()
+            if not any(k in text.upper() for k in ["MRP", "RS", "₹", "NET", "PKD", "MFD", "BATCH", "INGREDIENTS"]):
+                clean = re.sub(r"[^A-Za-z\s]", "", text).strip()
+                if 4 <= len(clean) <= 40 and len(clean.split()) <= 5:
+                    return clean.title()
+
+        return None
+
+    @classmethod
+    def extract_unit_sale_price(cls, lines: list[TextLine]) -> Optional[str]:
+        """Extract Unit Sale Price (USP) under Rule 6(1)(m)."""
+        for line in lines:
+            text = line.text
+            match = cls.RE_USP.search(text)
+            if match:
+                price = match.group("price")
+                unit = cls._standardize_unit(match.group("unit").strip())
+                currency = "₹" if "₹" in text else "Rs."
+                return f"{currency} {price} / {unit}"
+        return None
+
+    @classmethod
     def extract_all_fields(cls, lines: list[TextLine]) -> LegalMetrologyFields:
         """
-        Extract all six Rule 6 declarations and return a validated LegalMetrologyFields object.
+        Extract all mandatory Rule 6 declarations and return a validated LegalMetrologyFields object.
         """
         return LegalMetrologyFields(
             mrp=cls.extract_mrp(lines),
@@ -333,6 +414,8 @@ class LegalFieldExtractor:
             country_of_origin=cls.extract_country_of_origin(lines),
             manufacturer=cls.extract_manufacturer(lines),
             consumer_care=cls.extract_consumer_care(lines),
+            generic_name=cls.extract_generic_name(lines),
+            unit_sale_price=cls.extract_unit_sale_price(lines),
         )
 
     # Alias for convenience and backward compatibility
