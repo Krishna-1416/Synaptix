@@ -20,6 +20,8 @@ const statusMeta = {
   REVIEW: { label: 'Needs review', className: 'review', icon: CircleHelp }
 }
 
+let activeInspectionProgress = { extract: 'pending', check: 'pending', decide: 'pending', message: '' }
+
 function normalizeStats(stats = {}) {
   return {
     total: stats.total ?? stats.total_inspections ?? stats.inspections_count ?? demoStats.total_inspections,
@@ -34,6 +36,18 @@ function normalizeStats(stats = {}) {
 function formatDate(value) {
   if (!value) return 'Date unavailable'
   return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+
+function isAdmin(user) {
+  return ['admin', 'administrator'].includes(String(user?.role || '').toLowerCase())
+}
+
+function displayRole(user) {
+  return isAdmin(user) ? 'Administrator' : 'User'
+}
+
+function initials(user) {
+  return (user?.full_name || 'User').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 }
 
 function StatusBadge({ status }) {
@@ -94,7 +108,9 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme }) {
     try {
       const result = mode === 'login' ? await api.login(form) : await api.signup({ ...form, role: role === 'user' ? 'inspector' : 'admin' })
       if (result.access_token) window.localStorage.setItem('synaptix_access_token', result.access_token)
-      onAuthenticated({ ...(result.user || {}), full_name: result.user?.full_name || form.fullName || (role === 'user' ? 'Synaptix User' : 'Synaptix Admin'), role })
+      const authenticatedUser = result.user || {}
+      const authenticatedRole = ['admin', 'administrator'].includes(String(authenticatedUser.role || '').toLowerCase()) ? 'admin' : 'user'
+      onAuthenticated({ ...authenticatedUser, full_name: authenticatedRole === 'admin' ? 'Synaptix Admin' : authenticatedUser.full_name || form.fullName || 'Synaptix User', role: authenticatedRole })
     } catch (caught) {
       if (/502|Failed to fetch|NetworkError/i.test(caught.message || '')) {
         onAuthenticated({ full_name: form.fullName || (role === 'user' ? 'Synaptix User' : 'Synaptix Admin'), role })
@@ -119,6 +135,9 @@ function App() {
   const [notice, setNotice] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('synaptix_sidebar_collapsed') === 'true')
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [accountModal, setAccountModal] = useState(null)
+  const [signOutOpen, setSignOutOpen] = useState(false)
 
   function toggleSidebar() {
     setSidebarCollapsed((prev) => {
@@ -156,11 +175,30 @@ function App() {
   }
 
   function handleAuthenticated(nextUser) {
-    setUser(nextUser)
+    const normalizedUser = { ...nextUser, role: isAdmin(nextUser) ? 'admin' : 'user' }
+    setUser(normalizedUser)
     setAuthenticated(true)
     window.localStorage.setItem('synaptix_authenticated', 'true')
-    window.localStorage.setItem('synaptix_user', JSON.stringify(nextUser))
+    window.localStorage.setItem('synaptix_user', JSON.stringify(normalizedUser))
   }
+
+  function signOut() {
+    setAuthenticated(false)
+    setAccountOpen(false)
+    setSignOutOpen(false)
+    window.localStorage.removeItem('synaptix_authenticated')
+    window.localStorage.removeItem('synaptix_access_token')
+    window.localStorage.removeItem('synaptix_user')
+  }
+
+  useEffect(() => {
+    if (!accountOpen) return undefined
+    function closeOnEscape(event) { if (event.key === 'Escape') setAccountOpen(false) }
+    function closeOnOutsideClick(event) { if (!event.target.closest('.account-menu')) setAccountOpen(false) }
+    document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    return () => { document.removeEventListener('keydown', closeOnEscape); document.removeEventListener('pointerdown', closeOnOutsideClick) }
+  }, [accountOpen])
 
   if (!authenticated) return <EntryFlow onAuthenticated={handleAuthenticated} theme={theme} onToggleTheme={toggleTheme} />
 
@@ -180,7 +218,6 @@ function App() {
     <div className="app-shell">
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}>
         <div className="brand"><div className="brand-mark"><ShieldCheck size={20} /></div><div><strong>synaptix</strong><span>field intelligence</span></div></div>
-        <div className="workspace-label">Workspace <span>LIVE</span></div>
         <nav className="primary-nav" aria-label="Primary navigation">
           {navItems.map(({ id, label, icon: Icon }) => (
             <button
@@ -195,7 +232,7 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-section">
+        {isAdmin(user) && <div className="sidebar-section">
           <div className="sidebar-heading">System</div>
           <button
             title={sidebarCollapsed ? 'Analytics' : undefined}
@@ -213,21 +250,23 @@ function App() {
             <Settings size={18} />
             <span>Configuration</span>
           </button>
-        </div>
+        </div>}
         <div className="sidebar-footer">
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
-          <div className="user-chip" title={sidebarCollapsed ? user.full_name || 'Riya Kapoor' : undefined}>
-            <div className="avatar">{(user.full_name || 'RK').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</div>
-            <div><strong>{user.full_name || 'Riya Kapoor'}</strong><span>{user.role === 'admin' ? 'Administrator' : 'User account'}</span></div>
-            <ChevronRight size={16} />
+          <div className="account-menu" onClick={(event) => event.stopPropagation()}>
+            <button className="user-chip" title={sidebarCollapsed ? user.full_name || 'User' : undefined} onClick={() => setAccountOpen((open) => !open)} aria-expanded={accountOpen}>
+              <div className="avatar">{initials(user)}</div>
+              <div><strong>{user.full_name || 'User'}</strong><span>{displayRole(user)}</span></div>
+              <ChevronRight size={16} />
+            </button>
+            {accountOpen && <div className="account-dropdown">
+              <button onClick={() => { setAccountModal('profile'); setAccountOpen(false) }}><UserRound size={15} /> Profile</button>
+              <button onClick={() => { setActiveView('configuration'); setAccountOpen(false) }}><Settings size={15} /> Account Settings</button>
+              {isAdmin(user) && <button onClick={() => { setActiveView('analytics'); setAccountOpen(false) }}><BarChart3 size={15} /> Admin Dashboard</button>}
+              {!isAdmin(user) && <button onClick={() => { setActiveView('history'); setAccountOpen(false) }}><History size={15} /> My Inspections</button>}
+              <button className="account-danger" onClick={() => { setSignOutOpen(true); setAccountOpen(false) }}><LogOut size={15} /> Sign out</button>
+            </div>}
           </div>
-          <button
-            className="logout"
-            title={sidebarCollapsed ? 'Sign out' : undefined}
-            onClick={() => { setAuthenticated(false); window.localStorage.removeItem('synaptix_authenticated'); window.localStorage.removeItem('synaptix_user') }}
-          >
-            <LogOut size={16} /> Sign out
-          </button>
         </div>
         <button
           className="sidebar-rail-toggle"
@@ -265,9 +304,11 @@ function App() {
         {activeView === 'scan' && <Scan onComplete={handleInspectionComplete} onCancel={() => setActiveView('dashboard')} />}
         {activeView === 'history' && <HistoryView inspections={inspections} onOpen={openInspection} onNavigate={setActiveView} />}
         {activeView === 'detail' && <Detail inspection={selectedInspection} onBack={() => setActiveView('history')} />}
-        {activeView === 'analytics' && <AnalyticsView stats={stats} inspections={inspections} />}
+        {activeView === 'analytics' && (isAdmin(user) ? <AnalyticsView stats={stats} inspections={inspections} /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} />)}
         {activeView === 'configuration' && <ConfigurationView theme={theme} onToggleTheme={toggleTheme} />}
       </main>
+      {accountModal === 'profile' && <ProfileModal user={user} onClose={() => setAccountModal(null)} />}
+      {signOutOpen && <ConfirmModal onCancel={() => setSignOutOpen(false)} onConfirm={signOut} />}
     </div>
   )
 }
@@ -276,12 +317,20 @@ function PageIntro({ eyebrow, title, description, action }) {
   return <div className="page-intro"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>
 }
 
+function ProfileModal({ user, onClose }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal-card profile-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="profile-title"><button className="modal-close" onClick={onClose} aria-label="Close profile"><X size={17} /></button><div className="profile-avatar avatar">{initials(user)}</div><div className="eyebrow">Authenticated profile</div><h2 id="profile-title">{user.full_name || 'User'}</h2><div className="profile-details"><div><span>Email</span><strong>{user.email || 'Not available'}</strong></div><div><span>Role</span><strong>{displayRole(user)}</strong></div><div><span>Account status</span><strong className="profile-active"><CheckCircle2 size={14} /> Active</strong></div></div></section></div>
+}
+
+function ConfirmModal({ onCancel, onConfirm }) {
+  return <div className="modal-backdrop" onMouseDown={onCancel}><section className="modal-card confirm-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="signout-title"><div className="modal-icon"><LogOut size={18} /></div><h2 id="signout-title">Sign out of Synaptix?</h2><p>Are you sure you want to sign out?</p><div className="modal-actions"><button className="button secondary" onClick={onCancel}>Cancel</button><button className="button primary" onClick={onConfirm}>Sign out</button></div></section></div>
+}
+
 function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen }) {
   const firstName = (user?.full_name || 'Riya').split(' ')[0]
   const todayStr = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
   return <div className="page"><PageIntro eyebrow={todayStr} title={`Good morning, ${firstName}.`} description="Your compliance desk at a glance." action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> Start inspection</button>} />
     <section className="metric-grid"><Metric label="Total inspections" value={stats.total} detail="All time" icon={ClipboardCheck} tone="ink" /><Metric label="Compliance rate" value={`${Number(stats.rate).toFixed(1)}%`} detail="Across all inspections" icon={ShieldCheck} tone="green" /><Metric label="Need attention" value={stats.fail + stats.review} detail={`${stats.fail} failed · ${stats.review} review`} icon={Bell} tone="orange" /><Metric label="Recent alerts" value={stats.alerts} detail="Flagged violations" icon={Activity} tone="red" /></section>
-    <div className="content-grid"><section className="panel recent-panel"><div className="panel-heading"><div><div className="eyebrow">Latest activity</div><h2>Recent inspections</h2></div><button className="text-button" onClick={() => onNavigate('history')}>View all <ArrowUpRight size={15} /></button></div>{loading ? <LoadingRows /> : <InspectionTable inspections={inspections.slice(0, 4)} onOpen={onOpen} />}</section><section className="panel distribution-panel"><div className="panel-heading"><div><div className="eyebrow">Compliance pulse</div><h2>Decision split</h2></div><SlidersHorizontal size={18} className="muted-icon" /></div><div className="donut-wrap"><div className="donut" style={{ '--pass': `${stats.total ? stats.pass / stats.total * 100 : 0}%`, '--fail': `${stats.total ? stats.fail / stats.total * 100 : 0}%` }}><div><strong>{Number(stats.rate).toFixed(0)}%</strong><span>compliant</span></div></div></div><div className="legend"><Legend color="green" label="Compliant" value={stats.pass} /><Legend color="red" label="Non-compliant" value={stats.fail} /><Legend color="yellow" label="Needs review" value={stats.review} /></div></section></div>
+    <div className="content-grid"><section className="panel workflow-panel"><div className="panel-heading"><div><div className="eyebrow">Inspection workflow</div><h2>Keep the desk moving</h2></div><Activity size={18} className="muted-icon" /></div><div className="workflow-items"><button onClick={() => onNavigate('scan')}><ImagePlus size={17} /><span><strong>Start a new inspection</strong><small>Capture or upload a package label.</small></span><ArrowUpRight size={15} /></button><button onClick={() => onNavigate('history')}><History size={17} /><span><strong>Review your inspection archive</strong><small>Search completed compliance decisions.</small></span><ArrowUpRight size={15} /></button><button onClick={() => onNavigate(isAdmin(user) ? 'analytics' : 'configuration')}><Settings size={17} /><span><strong>{isAdmin(user) ? 'Monitor system intelligence' : 'Tune workspace preferences'}</strong><small>{isAdmin(user) ? 'Track outcomes across the enforcement desk.' : 'Set defaults for your inspection work.'}</small></span><ArrowUpRight size={15} /></button></div></section><section className="panel status-panel"><div className="panel-heading"><div><div className="eyebrow">Workspace status</div><h2>Ready for the next label</h2></div><ShieldCheck size={18} className="muted-icon" /></div><div className="workspace-status"><CheckCircle2 size={28} /><div><strong>{loading ? 'Syncing workspace' : 'Inspection desk online'}</strong><span>{loading ? 'Loading your records...' : `${stats.total} inspection${stats.total === 1 ? '' : 's'} available for review.`}</span></div></div><div className="status-rule"><span>Rule 6 monitoring</span><strong>Active</strong></div><div className="status-rule"><span>OCR + vision pipeline</span><strong>Ready</strong></div></section></div>
     <section className="insight-strip"><div className="insight-icon"><Activity size={19} /></div><div><strong>Rule 6 monitoring is active</strong><span>Synaptix is checking mandatory declarations across every uploaded package label.</span></div><button className="text-button">System health <ArrowUpRight size={15} /></button></section>
   </div>
 }
@@ -345,7 +394,6 @@ function AnalyticsView({ stats, inspections = [] }) {
       }
     })
   }, [inspections])
-
   return (
     <div className="page">
       <PageIntro
@@ -493,6 +541,7 @@ function Scan({ onComplete, onCancel }) {
   const [error, setError] = useState('')
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState('')
+  const [progress, setProgress] = useState({ extract: 'pending', check: 'pending', decide: 'pending', message: '' })
   const videoRef = useRef(null)
   const streamRef = useRef(null)
 
@@ -522,11 +571,42 @@ function Scan({ onComplete, onCancel }) {
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
     canvas.toBlob((blob) => { if (blob) { setFile(new File([blob], `synaptix-capture-${Date.now()}.jpg`, { type: 'image/jpeg' })); stopCamera() } }, 'image/jpeg', .92)
   }
-  async function submit(event) { event.preventDefault(); if (!file) return setError('Choose an image or capture a label first.'); setSubmitting(true); setError(''); try { onComplete(await api.inspect({ file, productName, category })) } catch (caught) { setError(caught.message) } finally { setSubmitting(false) } }
+  async function submit(event) {
+    event.preventDefault()
+    if (!file) return setError('Choose an image or capture a label first.')
+    setSubmitting(true)
+    setError('')
+    const startedProgress = { extract: 'processing', check: 'pending', decide: 'pending', message: 'Extracting information...' }
+    activeInspectionProgress = startedProgress
+    setProgress(startedProgress)
+    try {
+      const result = await api.inspect({ file, productName, category })
+      const extracted = Boolean(result.ocr_raw?.texts)
+      const checked = Boolean(result.visual_checks)
+      const decided = Boolean(result.compliance)
+      const completedProgress = { extract: extracted ? 'completed' : 'failed', check: checked ? 'completed' : 'failed', decide: decided ? 'completed' : 'failed', message: decided ? 'Inspection complete' : 'Inspection response was incomplete.' }
+      activeInspectionProgress = completedProgress
+      setProgress(completedProgress)
+      if (!extracted || !checked || !decided) throw new Error('The inspection response did not include all processing stages.')
+      onComplete(result)
+    } catch (caught) {
+      setError(caught.message || 'Inspection failed.')
+      setProgress((current) => {
+        const failedProgress = { ...current, [current.extract === 'processing' ? 'extract' : current.check === 'processing' ? 'check' : 'decide']: 'failed', message: caught.message || 'Inspection failed.' }
+        activeInspectionProgress = failedProgress
+        return failedProgress
+      })
+    } finally { setSubmitting(false) }
+  }
   function acceptFile(nextFile) { if (nextFile && nextFile.type.startsWith('image/')) { setFile(nextFile); setError('') } else setError('Please choose a JPG, PNG, or WEBP image.') }
   return <div className="page scan-page"><PageIntro eyebrow="New inspection" title="Read the label." description="Capture a live package image or upload a clear photo for analysis." action={<button className="text-button" onClick={onCancel}>Cancel</button>} /><form className="scan-layout" onSubmit={submit}><div className="scan-main">{cameraOpen ? <div className="camera-viewfinder"><video ref={videoRef} playsInline muted /><div className="viewfinder-frame"><i /><i /><i /><i /></div><div className="viewfinder-guide"><ScanLine size={16} /> Align the full label inside the frame</div><div className="camera-controls"><button type="button" className="camera-control" onClick={stopCamera}><StopCircle size={18} /> Close</button><button type="button" className="capture-button" onClick={capturePhoto} aria-label="Capture label photo"><Camera size={22} /></button><button type="button" className="camera-control" onClick={startCamera}><SwitchCamera size={18} /> Reset</button></div></div> : <><div className={`upload-zone ${dragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}><input id="label-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => acceptFile(event.target.files[0])} />{file ? <div className="file-preview"><ImagePlus size={25} /><div><strong>{file.name}</strong><span>{(file.size / 1024 / 1024).toFixed(2)} MB · ready for analysis</span></div><button type="button" className="remove-file" onClick={() => setFile(null)} aria-label="Remove file"><X size={17} /></button></div> : <label htmlFor="label-image"><div className="upload-icon"><UploadCloud size={24} /></div><strong>Drop the product label here</strong><span>or <u>browse files</u> · JPG, PNG or WEBP up to 10 MB</span></label>}</div><button type="button" className="camera-launch" onClick={startCamera}><Camera size={17} /> Use live camera</button></>}{cameraError && <div className="form-error camera-error"><Camera size={16} />{cameraError}</div>}<div className="scan-note"><ShieldCheck size={17} /><span>The image is processed by the Synaptix inspection pipeline. No source images are sent anywhere except your configured backend.</span></div></div><aside className="scan-sidebar"><div className="panel form-panel"><div className="eyebrow">Inspection context</div><h2>Tell us what we are looking at.</h2><label>Product name <span>Optional</span><input value={productName} onChange={(event) => setProductName(event.target.value)} placeholder="e.g. Harvest Gold Rice" /></label><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Packaged Commodity</option><option>Food & beverage</option><option>Personal care</option><option>Household</option><option>Other</option></select></label>{error && <div className="form-error"><XCircle size={16} />{error}</div>}<button className="button primary wide" disabled={submitting}>{submitting ? <><LoaderCircle className="spinner" size={17} /> Analysing label...</> : <><ClipboardCheck size={17} /> Run inspection</>}</button></div><div className="pipeline-list"><div className="eyebrow">What happens next</div><PipelineStep number="01" title="Extract" text="OCR finds mandatory declarations." /><PipelineStep number="02" title="Check" text="Visual rules assess readability." /><PipelineStep number="03" title="Decide" text="Rule 6 produces the result." /></div></aside></form></div>
 }
-function PipelineStep({ number, title, text }) { return <div className="pipeline-step"><span>{number}</span><div><strong>{title}</strong><small>{text}</small></div></div> }
+function PipelineStep({ number, title, text, status }) {
+  const currentStatus = status || activeInspectionProgress[title.toLowerCase()] || 'pending'
+  const statusText = currentStatus === 'processing' ? ({ Extract: 'Extracting information...', Check: 'Checking compliance...', Decide: 'Generating result...' }[title]) : currentStatus === 'completed' ? ({ Extract: 'Information extracted', Check: 'Compliance checked', Decide: 'Inspection complete' }[title]) : currentStatus === 'failed' ? activeInspectionProgress.message : text
+  const statusIcon = currentStatus === 'completed' ? <Check size={14} /> : currentStatus === 'processing' ? <LoaderCircle className="spinner" size={14} /> : currentStatus === 'failed' ? <X size={14} /> : <span className="pending-mark">○</span>
+  return <div className={`pipeline-step ${currentStatus}`}><span className="pipeline-number">{number}</span><span className="pipeline-status">{statusIcon}</span><div><strong>{title}</strong><small>{statusText}</small></div></div>
+}
 
 function HistoryView({ inspections, onOpen, onNavigate }) { const [search, setSearch] = useState(''); const [filter, setFilter] = useState('ALL'); const filtered = inspections.filter((item) => (filter === 'ALL' || item.compliance?.status === filter) && `${item.inspection_id} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase())); return <div className="page"><PageIntro eyebrow="Inspection repository" title="History, with context." description="Search every label that has moved through the compliance pipeline." action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> New inspection</button>} /><section className="panel history-panel"><div className="filter-bar"><div className="search-field"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search ID or product name" /></div><div className="filter-tabs">{['ALL', 'PASS', 'FAIL', 'REVIEW'].map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value === 'ALL' ? 'All results' : statusMeta[value].label}</button>)}</div></div><InspectionTable inspections={filtered} onOpen={onOpen} /></section></div> }
 
