@@ -15,10 +15,11 @@ async def list_inspections(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     status: Optional[str] = Query(None, description="Filter by compliance status: PASS, FAIL, REVIEW"),
-    search: Optional[str] = Query(None, description="Search term for product name or inspection ID")
+    search: Optional[str] = Query(None, description="Search term for product name or inspection ID"),
+    inspector_id: Optional[str] = Query(None, description="Filter by inspector user ID")
 ):
     try:
-        data = await InspectionService.list_inspections(page=page, limit=limit, status=status, search=search)
+        data = await InspectionService.list_inspections(page=page, limit=limit, status=status, search=search, inspector_id=inspector_id)
         return data
     except Exception as e:
         raise HTTPException(

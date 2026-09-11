@@ -30,10 +30,11 @@ export const api = {
     body: JSON.stringify({ email, password, full_name: fullName, role })
   })).json(),
   getDashboardStats: async () => (await request('/api/dashboard/stats')).json(),
-  getInspections: async ({ page = 1, limit = 10, status = '', search = '' } = {}) => {
+  getInspections: async ({ page = 1, limit = 10, status = '', search = '', inspectorId = '' } = {}) => {
     const params = new URLSearchParams({ page, limit })
     if (status) params.set('status', status)
     if (search) params.set('search', search)
+    if (inspectorId) params.set('inspector_id', inspectorId)
     return (await request(`/api/inspections?${params}`)).json()
   },
   getInspection: async (id) => (await request(`/api/inspections/${encodeURIComponent(id)}`)).json(),
