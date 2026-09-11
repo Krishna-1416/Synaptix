@@ -160,9 +160,9 @@ function PortalVisual() {
 }
 
 function Auth({ onBack, onAuthenticated, theme, onToggleTheme }) {
-  const [mode, setMode] = useState('login')
+  const [mode, setMode] = useState('signup')
   const [role, setRole] = useState('user')
-  const [form, setForm] = useState({ fullName: '', email: '', password: '' })
+  const [form, setForm] = useState({ email: '', password: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -176,72 +176,131 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme }) {
       if (result.access_token) window.localStorage.setItem('synaptix_access_token', result.access_token)
       const authenticatedUser = result.user || {}
       const authenticatedRole = ['admin', 'administrator'].includes(String(authenticatedUser.role || '').toLowerCase()) ? 'admin' : 'user'
-      onAuthenticated({ ...authenticatedUser, full_name: authenticatedRole === 'admin' ? 'Synaptix Admin' : authenticatedUser.full_name || form.fullName || 'Synaptix User', role: authenticatedRole })
+      onAuthenticated({ ...authenticatedUser, full_name: authenticatedRole === 'admin' ? 'Synaptix Admin' : authenticatedUser.full_name || form.email.split('@')[0] || 'Synaptix User', role: authenticatedRole })
     } catch (caught) {
       if (/502|Failed to fetch|NetworkError/i.test(caught.message || '')) {
-        onAuthenticated({ full_name: form.fullName || (role === 'user' ? 'Synaptix User' : 'Synaptix Admin'), role })
+        onAuthenticated({ full_name: form.email.split('@')[0] || (role === 'user' ? 'Synaptix User' : 'Synaptix Admin'), role })
       } else {
         setError(caught.message || 'Unable to authenticate. Please try again.')
       }
     } finally { setBusy(false) }
   }
-  return <div className="entry-screen auth-screen"><EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} /><div className="auth-layout"><div className="auth-story"><div className="entry-eyebrow"><span /> SECURE ACCESS / 03</div><h1>{mode === 'login' ? <>Welcome<br /><em>back, {role}.</em></> : <>Make every<br /><em>decision count.</em></>}</h1><p>{mode === 'login' ? 'Choose User or Admin access, then sign in to continue.' : 'Create an account with the access level your work requires.'}</p><div className="auth-proof"><div className="proof-mark"><LockKeyhole size={16} /></div><div><strong>Protected workspace</strong><span>Role-based access · audit-ready records</span></div></div></div><div className="auth-card"><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Sign in</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setError('') }}>Create account</button></div><div className="role-switcher"><button className={role === 'user' ? 'active' : ''} onClick={() => setRole('user')}><UserRound size={15} /><span>User</span><small>Inspection workspace</small></button><button className={role === 'admin' ? 'active' : ''} onClick={() => setRole('admin')}><BarChart3 size={15} /><span>Admin</span><small>System management</small></button></div><div className="auth-card-heading"><span className="auth-card-icon">{role === 'user' ? <UserRound size={18} /> : <BarChart3 size={18} />}</span><div><h2>{role === 'user' ? 'User workspace' : 'Admin workspace'}</h2><p>{mode === 'login' ? 'Use your account details.' : 'It only takes a minute to get started.'}</p></div></div><form onSubmit={submit}>
-            {mode === 'signup' && (
-              <label className="auth-field">
-                <span>Full name</span>
-                <div>
-                  <input
-                    required
-                    value={form.fullName}
-                    onChange={(event) => update('fullName', event.target.value)}
-                    placeholder={role === 'user' ? 'Riya Kapoor' : 'Arjun Mehta'}
-                    autoComplete="name"
-                  />
-                </div>
-              </label>
+  return <div className="entry-screen auth-screen">
+    <EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} />
+    <div className="auth-layout">
+      <div className="auth-story">
+        <div className="entry-eyebrow"><span /> SECURE ACCESS / 03</div>
+        <div key={`${mode}-${role}`} className="auth-story-dynamic">
+          <h1>{mode === 'login' ? <>Welcome<br /><em>back, {role}.</em></> : <>Make every<br /><em>decision count.</em></>}</h1>
+          <p>{mode === 'login' ? `Choose User or Admin access, then sign in to continue.` : 'Create an account with the access level your work requires.'}</p>
+        </div>
+        <div className="auth-proof">
+          <div className="proof-mark"><LockKeyhole size={16} /></div>
+          <div>
+            <strong>Protected workspace</strong>
+            <span>Role-based access · audit-ready records</span>
+          </div>
+        </div>
+      </div>
+      <div className="auth-card">
+        <div className="auth-toggles-container">
+          <div className="auth-tabs-wrap workspace-tabs-wrap">
+            <div className="auth-tabs" data-active={role === 'admin' ? '1' : '0'}>
+              <div className={`auth-capsule-thumb ${role === 'admin' ? 'pos-right' : 'pos-left'}`} aria-hidden="true" />
+              <button
+                type="button"
+                className={role === 'user' ? 'active' : ''}
+                onClick={() => setRole('user')}
+              >
+                User
+              </button>
+              <button
+                type="button"
+                className={role === 'admin' ? 'active' : ''}
+                onClick={() => setRole('admin')}
+              >
+                Admin
+              </button>
+            </div>
+          </div>
+
+          <div className="auth-tabs-wrap mode-tabs-wrap">
+            <div className="auth-tabs" data-active={mode === 'login' ? '1' : '0'}>
+              <div className={`auth-capsule-thumb ${mode === 'login' ? 'pos-right' : 'pos-left'}`} aria-hidden="true" />
+              <button
+                type="button"
+                className={mode === 'signup' ? 'active' : ''}
+                onClick={() => { setMode('signup'); setError('') }}
+              >
+                Sign Up
+              </button>
+              <button
+                type="button"
+                className={mode === 'login' ? 'active' : ''}
+                onClick={() => { setMode('login'); setError('') }}
+              >
+                Log In
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={submit}>
+          <label className="auth-field" aria-label="Email Address">
+            <div>
+              <input
+                required
+                type="email"
+                value={form.email}
+                onChange={(event) => update('email', event.target.value)}
+                placeholder="Email Address"
+                autoComplete="email"
+              />
+            </div>
+          </label>
+          <label className="auth-field" aria-label="Password">
+            <div>
+              <input
+                required
+                minLength={6}
+                type={showPassword ? 'text' : 'password'}
+                value={form.password}
+                onChange={(event) => update('password', event.target.value)}
+                placeholder="Password"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </label>
+          {error && <div className="auth-error"><XCircle size={16} />{error}</div>}
+          <button type="submit" className="button auth-submit" disabled={busy}>
+            {busy ? <><LoaderCircle size={17} className="spinner" /> Connecting...</> : (
+              <span key={`${mode}-${role}`} className="auth-submit-text">
+                {mode === 'signup' ? 'Sign Up' : 'Log In'}
+              </span>
             )}
-            <label className="auth-field">
-              <span>Email address</span>
-              <div>
-                <input
-                  required
-                  type="email"
-                  value={form.email}
-                  onChange={(event) => update('email', event.target.value)}
-                  placeholder={role === 'user' ? 'user@department.gov.in' : 'admin@department.gov.in'}
-                  autoComplete="email"
-                />
-              </div>
-            </label>
-            <label className="auth-field">
-              <span>Password</span>
-              <div>
-                <input
-                  required
-                  minLength={6}
-                  type={showPassword ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={(event) => update('password', event.target.value)}
-                  placeholder="••••••••••••"
-                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowPassword((value) => !value)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </label>
-            {error && <div className="auth-error"><XCircle size={16} />{error}</div>}
-            <button className="button auth-submit" disabled={busy}>
-              {busy ? <><LoaderCircle size={17} className="spinner" /> Connecting...</> : <>{mode === 'login' ? `Open ${role} workspace` : `Create ${role} account`} <ArrowUpRight size={17} /></>}
-            </button>
-          </form><div className="auth-foot">{mode === 'login' ? <>Forgot your password? <button>Contact support</button></> : <>Already have an account? <button onClick={() => setMode('login')}>Sign in instead</button></>}</div></div></div></div>
+          </button>
+        </form>
+
+        <div className="auth-foot">
+          {mode === 'login' ? (
+            <>Don't have an account? <button type="button" onClick={() => { setMode('signup'); setError('') }}>Sign Up</button></>
+          ) : (
+            <>Already have an account? <button type="button" onClick={() => { setMode('login'); setError('') }}>Log In</button></>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
 }
 
 function App() {
