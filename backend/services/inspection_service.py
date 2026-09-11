@@ -108,6 +108,7 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
 def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
     """Hook into cv/ module for calibrated font-height, placement, readability, and visual overlays."""
     try:
+        import cv2
         from cv.pipeline import run_cv_pipeline
         import cv2
         import base64
@@ -176,7 +177,7 @@ class InspectionService:
         1. Store image
         2. CV Preprocessing
         3. OCR Text Extraction & Field Parsing (non-blocking threadpool)
-        4. CV Visual Legibility Checks
+        4. CV Visual Legibility Checks & Bounding Box Overlay
         5. Legal Metrology Rules Validation
         6. Database Record Persistence
         """
@@ -191,8 +192,18 @@ class InspectionService:
         # 3. OCR & Field mapping (delegated to worker thread)
         ocr_raw, fields = await asyncio.to_thread(_run_ocr_pipeline, preprocessed_bytes, filename)
 
-        # 4. CV Visual checks (delegated to worker thread)
-        visual_checks = await asyncio.to_thread(_run_cv_visual_checks, preprocessed_bytes)
+        # 4. CV Visual checks & bounding box overlay (delegated to worker thread)
+        visual_checks, overlay_bytes = await asyncio.to_thread(_run_cv_visual_checks, preprocessed_bytes)
+
+        # 4b. Upload overlay image to storage if rendered
+        annotated_image_url = None
+        if overlay_bytes:
+            try:
+                clean_name = f"annotated_{filename.rsplit('.', 1)[0]}.jpg"
+                _, annotated_image_url = await upload_label_image(overlay_bytes, clean_name)
+                visual_checks.overlay_image = annotated_image_url
+            except Exception as e:
+                logger.warning(f"Failed to upload annotated overlay image ({e}).")
 
         # 5. Rule Engine evaluation
         compliance = evaluate_compliance(fields.model_dump(), visual_checks.model_dump())
@@ -202,6 +213,7 @@ class InspectionService:
             inspection_id=inspection_id,
             image_id=image_id,
             image_url=image_url,
+            annotated_image_url=annotated_image_url,
             product=ProductInfo(
                 name=product_name or filename.rsplit('.', 1)[0].replace('_', ' ').title(),
                 category=product_category
@@ -221,6 +233,10 @@ class InspectionService:
     @staticmethod
     async def save_inspection(inspection: InspectionResult, inspector_id: Optional[str] = None) -> bool:
         """Persists inspection record to Supabase or memory fallback."""
+        visual_data = inspection.visual_checks.model_dump() if inspection.visual_checks else {}
+        if inspection.annotated_image_url and not visual_data.get("overlay_image"):
+            visual_data["overlay_image"] = inspection.annotated_image_url
+
         record = {
             "inspection_id": inspection.inspection_id,
             "image_id": inspection.image_id,
@@ -228,7 +244,7 @@ class InspectionService:
             "product": inspection.product.model_dump(),
             "ocr_raw": inspection.ocr_raw.model_dump() if inspection.ocr_raw else {},
             "fields": inspection.fields.model_dump(),
-            "visual_checks": inspection.visual_checks.model_dump() if inspection.visual_checks else {},
+            "visual_checks": visual_data,
             "compliance": inspection.compliance.model_dump(),
             "created_at": inspection.created_at,
             "inspector_id": inspector_id
@@ -249,6 +265,90 @@ class InspectionService:
         return True
 
     @staticmethod
+    async def update_inspection_fields(
+        inspection_id: str,
+        updated_fields: Optional[MandatoryFields] = None,
+        updated_product: Optional[ProductInfo] = None,
+        inspector_id: Optional[str] = None
+    ) -> Optional[InspectionResult]:
+        """
+        Inspector Override: updates extracted declaration fields and/or product details,
+        re-evaluates Legal Metrology rules in real-time, and updates persistence.
+        """
+        existing = await InspectionService.get_inspection(inspection_id)
+        if not existing:
+            return None
+
+        # Merge fields
+        current_fields_dict = existing.fields.model_dump()
+        if updated_fields:
+            for k, v in updated_fields.model_dump().items():
+                if v is not None:
+                    current_fields_dict[k] = v
+        merged_fields = MandatoryFields(**current_fields_dict)
+
+        # Merge product
+        current_product_dict = existing.product.model_dump()
+        if updated_product:
+            for k, v in updated_product.model_dump().items():
+                if v is not None:
+                    current_product_dict[k] = v
+        merged_product = ProductInfo(**current_product_dict)
+
+        # Re-evaluate compliance with updated fields
+        from backend.rules.engine import evaluate_compliance
+        visual_dict = existing.visual_checks.model_dump() if existing.visual_checks else {}
+        new_compliance = evaluate_compliance(merged_fields.model_dump(), visual_dict)
+
+        # Construct updated result
+        updated_result = InspectionResult(
+            inspection_id=existing.inspection_id,
+            image_id=existing.image_id,
+            image_url=existing.image_url,
+            annotated_image_url=existing.annotated_image_url,
+            product=merged_product,
+            ocr_raw=existing.ocr_raw,
+            fields=merged_fields,
+            visual_checks=existing.visual_checks,
+            compliance=new_compliance,
+            created_at=existing.created_at
+        )
+
+        # Update record
+        visual_data = updated_result.visual_checks.model_dump() if updated_result.visual_checks else {}
+        if updated_result.annotated_image_url and not visual_data.get("overlay_image"):
+            visual_data["overlay_image"] = updated_result.annotated_image_url
+
+        record = {
+            "inspection_id": updated_result.inspection_id,
+            "image_id": updated_result.image_id,
+            "image_url": updated_result.image_url,
+            "product": updated_result.product.model_dump(),
+            "ocr_raw": updated_result.ocr_raw.model_dump() if updated_result.ocr_raw else {},
+            "fields": updated_result.fields.model_dump(),
+            "visual_checks": visual_data,
+            "compliance": updated_result.compliance.model_dump(),
+            "created_at": updated_result.created_at,
+            "inspector_id": inspector_id or _MEMORY_INSPECTIONS.get(inspection_id, {}).get("inspector_id")
+        }
+        _MEMORY_INSPECTIONS[inspection_id] = record
+
+        admin_client = get_supabase_admin_client()
+        if admin_client:
+            try:
+                admin_client.table("inspections").update({
+                    "fields": record["fields"],
+                    "product": record["product"],
+                    "compliance": record["compliance"],
+                    "visual_checks": record["visual_checks"]
+                }).eq("inspection_id", inspection_id).execute()
+                logger.info(f"Updated inspection {inspection_id} in Supabase with re-evaluated compliance.")
+            except Exception as e:
+                logger.warning(f"Failed to update inspection {inspection_id} in Supabase ({e}). Cached in memory.")
+
+        return updated_result
+
+    @staticmethod
     async def get_inspection(inspection_id: str) -> Optional[InspectionResult]:
         """Fetch single inspection record by inspection_id."""
         admin_client = get_supabase_admin_client()
@@ -257,6 +357,8 @@ class InspectionService:
                 res = admin_client.table("inspections").select("*").eq("inspection_id", inspection_id).execute()
                 if res.data and len(res.data) > 0:
                     row = res.data[0]
+                    if not row.get("annotated_image_url"):
+                        row["annotated_image_url"] = (row.get("visual_checks") or {}).get("overlay_image")
                     return InspectionResult(**row)
             except Exception as e:
                 logger.warning(f"Failed querying Supabase for {inspection_id}: {e}")
@@ -264,6 +366,8 @@ class InspectionService:
         # Fallback to in-memory
         record = _MEMORY_INSPECTIONS.get(inspection_id)
         if record:
+            if not record.get("annotated_image_url"):
+                record["annotated_image_url"] = (record.get("visual_checks") or {}).get("overlay_image")
             return InspectionResult(**record)
         return None
 
@@ -288,7 +392,11 @@ class InspectionService:
                 query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
                 response = query.execute()
 
-                items = [InspectionResult(**row) for row in response.data]
+                items = []
+                for row in response.data:
+                    if not row.get("annotated_image_url"):
+                        row["annotated_image_url"] = (row.get("visual_checks") or {}).get("overlay_image")
+                    items.append(InspectionResult(**row))
                 total = response.count or len(items)
                 return {"data": items, "total": total, "page": page, "limit": limit}
             except Exception as e:
@@ -309,7 +417,11 @@ class InspectionService:
         total = len(filtered)
         start = (page - 1) * limit
         paginated = filtered[start:start + limit]
-        items = [InspectionResult(**row) for row in paginated]
+        items = []
+        for row in paginated:
+            if not row.get("annotated_image_url"):
+                row["annotated_image_url"] = (row.get("visual_checks") or {}).get("overlay_image")
+            items.append(InspectionResult(**row))
         return {"data": items, "total": total, "page": page, "limit": limit}
 
     @staticmethod

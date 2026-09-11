@@ -1,11 +1,13 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
 async function request(path, options = {}) {
+  const token = window.localStorage.getItem('synaptix_access_token')
   const response = await fetch(`${API_BASE_URL}${path}`, {
     cache: 'no-store',
     ...options,
     headers: {
       ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
   })
@@ -42,6 +44,10 @@ export const api = {
     if (category) formData.append('category', category)
     return (await request('/api/inspect', { method: 'POST', body: formData })).json()
   },
+  updateInspection: async (id, payload) => (await request(`/api/inspections/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  })).json(),
   downloadReport: async (id) => {
     const response = await request(`/api/report/${encodeURIComponent(id)}`)
     const blob = await response.blob()

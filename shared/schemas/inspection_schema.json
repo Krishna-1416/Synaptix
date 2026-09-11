@@ -6,6 +6,8 @@
   "properties": {
     "inspection_id": { "type": "string" },
     "image_id": { "type": "string" },
+    "image_url": { "type": ["string", "null"] },
+    "annotated_image_url": { "type": ["string", "null"] },
     "product": {
       "type": "object",
       "properties": {

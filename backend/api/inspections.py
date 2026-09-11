@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Query, HTTPException, status
-from backend.models.inspection import InspectionResult, InspectionListResponse
+from backend.models.inspection import InspectionResult, InspectionListResponse, InspectionUpdateRequest
 from backend.services.inspection_service import InspectionService
 
 router = APIRouter(prefix="/inspections", tags=["Inspections Repository"])
@@ -40,6 +40,36 @@ async def get_inspection_details(inspection_id: str):
             detail=f"Inspection '{inspection_id}' not found."
         )
     return inspection
+
+
+@router.patch(
+    "/{inspection_id}",
+    response_model=InspectionResult,
+    summary="Update extracted fields and re-evaluate Legal Metrology compliance (Inspector Override)"
+)
+async def update_inspection(
+    inspection_id: str,
+    update_req: InspectionUpdateRequest
+):
+    try:
+        updated = await InspectionService.update_inspection_fields(
+            inspection_id=inspection_id,
+            updated_fields=update_req.fields,
+            updated_product=update_req.product
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Inspection '{inspection_id}' not found."
+            )
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update inspection: {str(e)}"
+        )
 
 
 @router.delete(

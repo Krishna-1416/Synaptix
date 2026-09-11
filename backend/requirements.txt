@@ -5,8 +5,6 @@ pydantic
 supabase
 reportlab
 opencv-python-headless
-paddlepaddle
-paddleocr
-pytesseract
-easyocr
+rapidocr-onnxruntime
+onnxruntime
 python-dotenv
