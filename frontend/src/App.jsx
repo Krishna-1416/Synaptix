@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, ArrowLeft, ArrowUpRight, BarChart3, Bell, Camera, Check, ChevronRight, CircleHelp,
-  ClipboardCheck, FileText, History, ImagePlus, LayoutDashboard, LoaderCircle,
-  LockKeyhole, LogOut, Mail, Menu, Moon, ScanLine, Search, Settings, ShieldCheck,
+  Activity, ArrowLeft, ArrowUpRight, BarChart3, Bell, Camera, Check, CheckCircle2, ChevronRight, CircleHelp,
+  ClipboardCheck, Edit3, Eye, FileText, History, ImagePlus, Layers, LayoutDashboard, LoaderCircle,
+  LockKeyhole, LogOut, Mail, Menu, Moon, Save, ScanLine, Search, Settings, ShieldCheck,
   SlidersHorizontal, StopCircle, Sun, SwitchCamera, UploadCloud, UserRound, X, XCircle
 } from 'lucide-react'
 import { api, demoInspections } from './api'
@@ -533,6 +533,13 @@ function HistoryView({ inspections, onOpen, onNavigate }) { const [search, setSe
 function Detail({ inspection, onBack }) {
   const [loading, setLoading] = useState(false)
   const [fullInspection, setFullInspection] = useState(inspection)
+  const [imageMode, setImageMode] = useState('overlay')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editFields, setEditFields] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
   useEffect(() => {
     if (!inspection) return
     api.getInspection(inspection.inspection_id).then(setFullInspection).catch(() => {})
@@ -560,8 +567,69 @@ function Detail({ inspection, onBack }) {
     }
   }
 
-  const rawUrl = fullInspection.image_url
-  const imageUrl = rawUrl ? (rawUrl.startsWith('http') ? rawUrl : `${(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')}${rawUrl}`) : null
+  const FIELD_DEFINITIONS = [
+    { key: 'manufacturer', label: 'Manufacturer' },
+    { key: 'country_of_origin', label: 'Country of origin' },
+    { key: 'generic_name', label: 'Generic / Commodity name' },
+    { key: 'net_quantity', label: 'Net quantity' },
+    { key: 'manufacture_date', label: 'Manufacture date' },
+    { key: 'mrp', label: 'Maximum retail price' },
+    { key: 'unit_sale_price', label: 'Unit sale price (USP)' },
+    { key: 'consumer_care', label: 'Consumer care' }
+  ]
+
+  function startEditing() {
+    setEditFields({
+      manufacturer: fields.manufacturer || '',
+      country_of_origin: fields.country_of_origin || '',
+      generic_name: fields.generic_name || '',
+      net_quantity: fields.net_quantity || '',
+      manufacture_date: fields.manufacture_date || '',
+      mrp: fields.mrp || '',
+      unit_sale_price: fields.unit_sale_price || '',
+      consumer_care: fields.consumer_care || ''
+    })
+    setIsEditing(true)
+    setSaveSuccess(false)
+    setSaveError('')
+  }
+
+  function cancelEditing() {
+    setIsEditing(false)
+    setSaveError('')
+  }
+
+  async function handleSave(e) {
+    if (e) e.preventDefault()
+    setSaving(true)
+    setSaveError('')
+    try {
+      const updated = await api.updateInspection(fullInspection.inspection_id, {
+        fields: editFields
+      })
+      setFullInspection(updated)
+      setIsEditing(false)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 4500)
+    } catch (err) {
+      setSaveError(err.message || 'Failed to update declarations')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const resolveMediaUrl = (path) => {
+    if (!path) return null
+    return path.startsWith('http')
+      ? path
+      : `${(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')}${path}`
+  }
+
+  const rawImageUrl = resolveMediaUrl(fullInspection.image_url)
+  const overlayImageUrl = resolveMediaUrl(fullInspection.annotated_image_url || visual.overlay_image)
+  const hasOverlay = Boolean(overlayImageUrl)
+  const hasRaw = Boolean(rawImageUrl)
+  const displayedImageUrl = (imageMode === 'overlay' && hasOverlay) ? overlayImageUrl : (rawImageUrl || overlayImageUrl)
 
   return (
     <div className="page">
@@ -617,11 +685,41 @@ function Detail({ inspection, onBack }) {
               <strong>{visual.placement || 'Not assessed'}</strong>
             </div>
           </div>
-          {imageUrl && (
+          {displayedImageUrl && (
             <div className="detail-image-section">
-              <div className="eyebrow">Inspected label photo</div>
+              <div className="detail-image-header">
+                <div className="eyebrow">
+                  {imageMode === 'overlay' && hasOverlay ? 'AI Detection Overlay' : 'Original Label Photo'}
+                </div>
+                {hasOverlay && hasRaw && (
+                  <div className="image-mode-toggle" role="group" aria-label="Label image view mode">
+                    <button
+                      type="button"
+                      className={`image-mode-btn ${imageMode === 'raw' ? 'active' : ''}`}
+                      onClick={() => setImageMode('raw')}
+                    >
+                      <Eye size={13} /> Original
+                    </button>
+                    <button
+                      type="button"
+                      className={`image-mode-btn ${imageMode === 'overlay' ? 'active' : ''}`}
+                      onClick={() => setImageMode('overlay')}
+                    >
+                      <Layers size={13} /> Detection Overlay
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="detail-image-frame">
-                <img src={imageUrl} alt={fullInspection.product?.name || 'Inspected product label'} />
+                <img
+                  src={displayedImageUrl}
+                  alt={fullInspection.product?.name || 'Inspected product label'}
+                />
+                {imageMode === 'overlay' && hasOverlay && (
+                  <div className="overlay-badge">
+                    <Layers size={12} /> Bounding Boxes Active
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -630,26 +728,83 @@ function Detail({ inspection, onBack }) {
           <div className="panel-heading">
             <div>
               <div className="eyebrow">Rule 6 declarations</div>
-              <h2>Extracted fields</h2>
+              <h2>{isEditing ? 'Edit declarations' : 'Extracted fields'}</h2>
             </div>
-            <ClipboardCheck size={18} className="muted-icon" />
+            <div className="panel-header-actions">
+              {!isEditing ? (
+                <button
+                  type="button"
+                  className="button secondary small field-action-btn"
+                  onClick={startEditing}
+                  title="Correct or override misread declarations"
+                >
+                  <Edit3 size={13} /> Edit
+                </button>
+              ) : (
+                <div className="edit-btn-group">
+                  <button
+                    type="button"
+                    className="button text-button small"
+                    onClick={cancelEditing}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="button primary small field-action-btn"
+                    onClick={handleSave}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <>
+                        <LoaderCircle className="spinner" size={13} /> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={13} /> Save & Re-evaluate
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+
+          {saveSuccess && (
+            <div className="form-success banner">
+              <CheckCircle2 size={16} /> Declarations updated! Rules re-evaluated in real time.
+            </div>
+          )}
+          {saveError && (
+            <div className="form-error banner">
+              <XCircle size={16} /> {saveError}
+            </div>
+          )}
+
           <div className="field-list">
-            {[
-              ['Manufacturer', fields.manufacturer],
-              ['Country of origin', fields.country_of_origin],
-              ['Generic / Commodity name', fields.generic_name],
-              ['Net quantity', fields.net_quantity],
-              ['Manufacture date', fields.manufacture_date],
-              ['Maximum retail price', fields.mrp],
-              ['Unit sale price (USP)', fields.unit_sale_price],
-              ['Consumer care', fields.consumer_care],
-            ].map(([label, value]) => (
-              <div className="field-row" key={label}>
-                <span>{label}</span>
-                <strong className={!value ? 'missing' : ''}>{value || 'Not detected'}</strong>
-              </div>
-            ))}
+            {FIELD_DEFINITIONS.map(({ key, label }) => {
+              const value = fields[key]
+              return (
+                <div className={`field-row ${isEditing ? 'editing' : ''}`} key={key}>
+                  <span>{label}</span>
+                  {isEditing ? (
+                    <input
+                      className="edit-field-input"
+                      value={editFields[key] ?? ''}
+                      placeholder={`Enter ${label.toLowerCase()}...`}
+                      onChange={(e) =>
+                        setEditFields((prev) => ({ ...prev, [key]: e.target.value }))
+                      }
+                    />
+                  ) : (
+                    <strong className={!value ? 'missing' : ''}>
+                      {value || 'Not detected'}
+                    </strong>
+                  )}
+                </div>
+              )
+            })}
           </div>
           <div className="ocr-count">
             <Activity size={15} /> {ocr.texts?.length || 0} text regions detected by OCR

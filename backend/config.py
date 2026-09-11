@@ -34,7 +34,7 @@ class Settings:
         if origin.strip()
     ]
     
-    # Backend port
-    PORT: int = int(os.getenv("BACKEND_PORT", "8000"))
+    # Backend port (Render / PaaS injects PORT, fallback to BACKEND_PORT or 8000)
+    PORT: int = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
 
 settings = Settings()

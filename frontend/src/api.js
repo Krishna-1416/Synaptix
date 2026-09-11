@@ -42,6 +42,10 @@ export const api = {
     if (category) formData.append('category', category)
     return (await request('/api/inspect', { method: 'POST', body: formData })).json()
   },
+  updateInspection: async (id, payload) => (await request(`/api/inspections/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  })).json(),
   downloadReport: async (id) => {
     const response = await request(`/api/report/${encodeURIComponent(id)}`)
     const blob = await response.blob()
