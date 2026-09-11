@@ -1,0 +1,40 @@
+{
+  "label_to_id": {
+    "O": 0,
+    "B-MANUFACTURER": 1,
+    "I-MANUFACTURER": 2,
+    "B-COUNTRY": 3,
+    "I-COUNTRY": 4,
+    "B-GENERIC_NAME": 5,
+    "I-GENERIC_NAME": 6,
+    "B-NET_QUANTITY": 7,
+    "I-NET_QUANTITY": 8,
+    "B-MANUFACTURE_DATE": 9,
+    "I-MANUFACTURE_DATE": 10,
+    "B-MRP": 11,
+    "I-MRP": 12,
+    "B-UNIT_SALE_PRICE": 13,
+    "I-UNIT_SALE_PRICE": 14,
+    "B-CONSUMER_CARE": 15,
+    "I-CONSUMER_CARE": 16
+  },
+  "id_to_label": {
+    "0": "O",
+    "1": "B-MANUFACTURER",
+    "2": "I-MANUFACTURER",
+    "3": "B-COUNTRY",
+    "4": "I-COUNTRY",
+    "5": "B-GENERIC_NAME",
+    "6": "I-GENERIC_NAME",
+    "7": "B-NET_QUANTITY",
+    "8": "I-NET_QUANTITY",
+    "9": "B-MANUFACTURE_DATE",
+    "10": "I-MANUFACTURE_DATE",
+    "11": "B-MRP",
+    "12": "I-MRP",
+    "13": "B-UNIT_SALE_PRICE",
+    "14": "I-UNIT_SALE_PRICE",
+    "15": "B-CONSUMER_CARE",
+    "16": "I-CONSUMER_CARE"
+  }
+}
