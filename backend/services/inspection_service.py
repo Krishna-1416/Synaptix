@@ -40,17 +40,6 @@ def _run_cv_preprocess(image_bytes: bytes) -> bytes:
         return image_bytes
     except Exception as e:
         logger.warning(f"CV deskew preprocessing fallback used: {e}")
-    """Validate image bytes and preprocess using cv.pipeline or cv.preprocessing."""
-    try:
-        from cv.pipeline import run_cv_pipeline
-        import cv2
-        cv_res = run_cv_pipeline(image_bytes)
-        success, encoded = cv2.imencode(".png", cv_res.ocr_ready_image)
-        if success:
-            return encoded.tobytes()
-        return image_bytes
-    except Exception as e:
-        logger.debug(f"CV Preprocessing fallback used: {e}")
         return image_bytes
 
 
@@ -75,13 +64,15 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
         ]
         raw_ocr = OCRRaw(texts=ocr_items)
 
-        # Map LegalMetrologyFields to MandatoryFields
+        # Map LegalMetrologyFields to MandatoryFields (all Rule 6 declarations)
         fields = MandatoryFields(
             manufacturer=ocr_result.fields.manufacturer,
             country_of_origin=ocr_result.fields.country_of_origin,
+            generic_name=ocr_result.fields.generic_name,
             net_quantity=ocr_result.fields.net_quantity,
             manufacture_date=ocr_result.fields.manufacture_date,
             mrp=ocr_result.fields.mrp,
+            unit_sale_price=ocr_result.fields.unit_sale_price,
             consumer_care=ocr_result.fields.consumer_care,
         )
         return raw_ocr, fields
@@ -93,28 +84,33 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
             texts=[
                 OCRTextItem(text="Mfd by: Green Valley Organics Pvt Ltd, Pune 411001", confidence=0.98, bbox=[50.0, 100.0, 400.0, 140.0]),
                 OCRTextItem(text="Country of Origin: India", confidence=0.99, bbox=[50.0, 150.0, 250.0, 180.0]),
+                OCRTextItem(text="Common Name: Organic Rolled Oats", confidence=0.97, bbox=[50.0, 170.0, 300.0, 195.0]),
                 OCRTextItem(text="Net Weight: 500 g", confidence=0.97, bbox=[50.0, 190.0, 200.0, 220.0]),
                 OCRTextItem(text="Mfg Date: 08/2026", confidence=0.95, bbox=[50.0, 230.0, 220.0, 260.0]),
                 OCRTextItem(text="MRP: Rs 140.00 (inclusive of all taxes)", confidence=0.96, bbox=[50.0, 270.0, 320.0, 300.0]),
+                OCRTextItem(text="USP: Rs 0.28 / g", confidence=0.95, bbox=[50.0, 290.0, 220.0, 315.0]),
                 OCRTextItem(text="Consumer Care: care@greenvalley.com / 1800-200-1122", confidence=0.94, bbox=[50.0, 310.0, 450.0, 340.0]),
             ]
         )
         mock_fields = MandatoryFields(
             manufacturer="Green Valley Organics Pvt Ltd, Pune 411001",
             country_of_origin="India",
+            generic_name="Organic Rolled Oats",
             net_quantity="500 g",
             manufacture_date="08/2026",
             mrp="₹140.00",
+            unit_sale_price="₹ 0.28 / g",
             consumer_care="care@greenvalley.com / 1800-200-1122"
         )
         return mock_raw, mock_fields
 
 
 def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
-    """Hook into cv/ module for calibrated font-height, readability, and placement."""
-    """Hook into cv/ module for calibrated font-height, placement, and readability."""
+    """Hook into cv/ module for calibrated font-height, placement, readability, and visual overlays."""
     try:
         from cv.pipeline import run_cv_pipeline
+        import cv2
+        import base64
 
         cv_result = run_cv_pipeline(image_bytes)
         readability_status = cv_result.readability.status.upper()
@@ -126,41 +122,43 @@ def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
             readability = "REVIEW"
 
         font_h = None
-        if cv_result.regions:
+        if cv_result.font_height and cv_result.font_height.physical_height_mm:
+            font_h = round(cv_result.font_height.physical_height_mm, 2)
+        elif cv_result.regions:
             heights = sorted([r.height for r in cv_result.regions])
             median_px = heights[len(heights) // 2]
             # Standard package photograph calibration (~150 DPI nominal scale)
-            font_h = round(median_px / 150.0 * 25.4, 2)
+            nominal_dpi = cv_result.dpi or 150.0
+            font_h = round(median_px / nominal_dpi * 25.4, 2)
 
         region_count = len(cv_result.regions)
         placement = f"Principal Display Panel ({region_count} regions detected)"
 
+        # Generate overlay image as data URI
+        overlay_uri = None
+        try:
+            overlay = cv_result.region_overlay()
+            success, encoded = cv2.imencode(".png", overlay)
+            if success:
+                overlay_uri = "data:image/png;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
+        except Exception as oe:
+            logger.debug(f"Could not encode CV overlay: {oe}")
+
         return VisualChecks(
             readability=readability,
             font_height=font_h or 1.85,
-            placement=placement
+            placement=placement,
+            dpi=cv_result.dpi,
+            overlay_image=overlay_uri
         )
     except Exception as e:
         logger.warning(f"CV visual checks fallback used: {e}")
         return VisualChecks(
             readability="HIGH (Clear)",
             font_height=1.85,
-            placement="Principal Display Panel"
+            placement="Principal Display Panel",
+            dpi=150.0
         )
-        from cv.pipeline import run_cv_pipeline
-        cv_res = run_cv_pipeline(image_bytes)
-        payload = cv_res.backend_payload().get("visual_checks", {})
-        readability = payload.get("readability") or "good"
-        font_height = payload.get("font_height")
-        placement = payload.get("placement") or "Principal Display Panel"
-        return VisualChecks(
-            readability=str(readability).upper(),
-            font_height=font_height,
-            placement=str(placement)
-        )
-    except Exception as e:
-        logger.debug(f"CV visual checks fallback used: {e}")
-        return VisualChecks(readability="HIGH (Clear)", font_height=1.85, placement="Principal Display Panel")
 
 
 
