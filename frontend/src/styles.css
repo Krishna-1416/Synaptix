@@ -1735,5 +1735,533 @@ textarea:focus { outline: 2px solid var(--primary-border); outline-offset: 1px; 
   }
 }
 
+/* ==========================================================================
+   Language Switcher Pill
+   ========================================================================== */
+.lang-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 2px;
+  gap: 2px;
+}
+.lang-switcher button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 16px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.lang-switcher button:hover {
+  color: var(--ink);
+}
+.lang-switcher button.active {
+  background: var(--accent-primary);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+}
 
+/* ==========================================================================
+   Dual Interactive Pie Charts (Compliance vs Confidence)
+   ========================================================================== */
+.dual-pie-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.pie-chart-card {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.pie-chart-card:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--line));
+}
+.pie-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.compliance-tag,
+.confidence-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.compliance-tag.pass {
+  background: var(--pass-soft);
+  color: var(--status-success);
+  border: 1px solid var(--pass-border);
+}
+.compliance-tag.fail {
+  background: var(--fail-soft);
+  color: var(--status-error);
+  border: 1px solid var(--fail-border);
+}
+.compliance-tag.review {
+  background: var(--yellow-soft);
+  color: var(--status-warning);
+  border: 1px solid var(--review-border);
+}
+.confidence-tag {
+  background: var(--primary-subtle);
+  color: var(--accent-primary);
+  border: 1px solid var(--primary-border);
+}
+.pie-chart-body {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 20px;
+  align-items: center;
+}
+.pie-svg-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: grid;
+  place-items: center;
+}
+.pie-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.pie-arc {
+  fill: none;
+  stroke-width: 11;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.3s ease, stroke-width 0.2s ease, filter 0.2s ease;
+  cursor: pointer;
+}
+.pie-arc.disobeyed-arc {
+  stroke: var(--status-error);
+}
+.pie-arc.obeyed-arc {
+  stroke: var(--status-success);
+}
+.pie-arc.track-arc {
+  stroke: var(--line);
+}
+.pie-arc.confidence-arc {
+  stroke: var(--accent-primary);
+}
+.pie-arc.hovered {
+  stroke-width: 14;
+  filter: drop-shadow(0 0 5px currentColor);
+}
+.pie-center-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+.pie-big-number {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.pie-denominator {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pie-subtext {
+  font-size: 9px;
+  color: var(--ink-tertiary);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pie-legend {
+  display: grid;
+  gap: 10px;
+}
+.pie-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+.pie-legend-item:hover,
+.pie-legend-item.active {
+  background: var(--bg-surface-hover);
+}
+.pie-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pie-legend-dot.obeyed-dot {
+  background: var(--status-success);
+}
+.pie-legend-dot.disobeyed-dot {
+  background: var(--status-error);
+}
+.pie-legend-dot.confidence-dot {
+  background: var(--accent-primary);
+}
+.pie-legend-dot.uncertainty-dot {
+  background: var(--ink-tertiary);
+}
+.pie-legend-text strong {
+  display: block;
+  font-size: 11px;
+  color: var(--ink);
+}
+.pie-legend-text span {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.pie-hover-tooltip {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 10;
+  background: var(--ink);
+  color: var(--bg-surface);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  animation: fadeIn 0.15s ease;
+}
+.pie-hover-tooltip strong {
+  display: block;
+  color: #ffffff;
+}
+.pie-hover-tooltip small {
+  display: block;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 9px;
+  margin-top: 2px;
+}
 
+/* ==========================================================================
+   Statutory Rules Breakdown (Obeyed vs Disobeyed)
+   ========================================================================== */
+.statutory-rules-breakdown-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+.statutory-rule-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+.statutory-rule-card.card-obeyed {
+  border-top: 3px solid var(--status-success);
+}
+.statutory-rule-card.card-disobeyed {
+  border-top: 3px solid var(--status-error);
+}
+.statutory-rule-card.card-review {
+  border-top: 3px solid var(--status-warning);
+}
+.rule-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.rule-card-header .header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rule-card-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.clause-count-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+.clause-count-pill.pass {
+  background: var(--pass-soft);
+  color: var(--status-success);
+}
+.clause-count-pill.fail {
+  background: var(--fail-soft);
+  color: var(--status-error);
+}
+.clause-count-pill.review {
+  background: var(--yellow-soft);
+  color: var(--status-warning);
+}
+.rule-items-list {
+  display: grid;
+  gap: 10px;
+}
+.statutory-rule-item {
+  padding: 11px 13px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-surface-raised);
+}
+.statutory-rule-item.passed {
+  border-left: 3px solid var(--status-success);
+}
+.statutory-rule-item.failed {
+  border-left: 3px solid var(--status-error);
+}
+.statutory-rule-item.review {
+  border-left: 3px solid var(--status-warning);
+}
+.rule-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.rule-item-meta strong {
+  font-size: 11px;
+  color: var(--ink);
+}
+.statutory-tag {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.statutory-tag.pass {
+  background: var(--pass-soft);
+  color: var(--status-success);
+}
+.statutory-tag.fail {
+  background: var(--fail-soft);
+  color: var(--status-error);
+}
+.statutory-tag.review {
+  background: var(--yellow-soft);
+  color: var(--status-warning);
+}
+.rule-verified-value {
+  font-size: 10px;
+  color: var(--status-success);
+  font-weight: 600;
+  margin-top: 3px;
+}
+.rule-desc {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.statutory-penalty-note {
+  font-size: 9px;
+  color: var(--status-error);
+  font-weight: 600;
+  margin-top: 5px;
+  opacity: 0.9;
+}
+.rule-empty {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 20px 0;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Action Buttons & Official Portal Redirection
+   ========================================================================== */
+.detail-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+.redirect-official-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+/* ==========================================================================
+   Role-Based History Inspector Tags & Filter
+   ========================================================================== */
+.inspector-tag {
+  display: inline-block;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--primary-subtle);
+  color: var(--accent-primary);
+  border: 1px solid var(--primary-border);
+}
+.inspector-filter-tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.inspector-filter-tabs button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.inspector-filter-tabs button:hover {
+  color: var(--ink);
+  background: var(--bg-surface-hover);
+}
+.inspector-filter-tabs button.active {
+  background: var(--primary-subtle);
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Admin Analytics Monitoring Panels
+   ========================================================================== */
+.violation-monitor-panel {
+  display: flex;
+  flex-direction: column;
+}
+.violation-bars {
+  display: grid;
+  gap: 14px;
+  margin-top: 8px;
+}
+.violation-bar-row {
+  display: grid;
+  gap: 6px;
+}
+.violation-bar-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+.violation-bar-meta strong {
+  color: var(--ink);
+}
+.violation-bar-meta span {
+  color: var(--status-error);
+  font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+}
+.violation-bar-track {
+  height: 8px;
+  background: var(--line-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.violation-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #F87171, #DF1B41);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/* ==========================================================================
+   Admin Technical Documentation
+   ========================================================================== */
+.documentation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.doc-panel {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.doc-panel-header {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.doc-num {
+  font-family: 'DM Mono', monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-primary);
+  background: var(--primary-subtle);
+  border: 1px solid var(--primary-border);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.doc-panel-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.doc-subtitle {
+  color: var(--accent-primary);
+  font-size: 10px;
+  font-weight: 600;
+  display: block;
+  margin-top: 3px;
+}
+.doc-content {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .dual-pie-charts-grid,
+  .statutory-rules-breakdown-grid,
+  .documentation-grid {
+    grid-template-columns: 1fr;
+  }
+}

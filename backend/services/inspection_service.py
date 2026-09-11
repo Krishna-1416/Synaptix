@@ -423,6 +423,7 @@ class InspectionService:
         search: Optional[str] = None,
         requester_id: Optional[str] = None,
         is_admin: bool = False,
+        inspector_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """List inspections with optional filtering and pagination."""
         admin_client = get_supabase_admin_client()
@@ -435,6 +436,8 @@ class InspectionService:
                     query = query.eq("compliance->>status", status.upper())
                 if search:
                     query = query.ilike("product->>name", f"%{search}%")
+                if inspector_id:
+                    query = query.eq("inspector_id", inspector_id)
 
                 offset = (page - 1) * limit
                 query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
@@ -462,6 +465,11 @@ class InspectionService:
             filtered = [
                 item for item in filtered 
                 if s in str(item.get("product", {}).get("name", "")).lower() or s in item.get("inspection_id", "").lower()
+            ]
+        if inspector_id:
+            filtered = [
+                item for item in filtered
+                if str(item.get("inspector_id") or "") == str(inspector_id)
             ]
 
         total = len(filtered)

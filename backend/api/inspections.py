@@ -18,6 +18,7 @@ async def list_inspections(
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     status: Optional[str] = Query(None, description="Filter by compliance status: PASS, FAIL, REVIEW"),
     search: Optional[str] = Query(None, description="Search term for product name or inspection ID"),
+    inspector_id: Optional[str] = Query(None, description="Filter by inspector user ID"),
     user: UserProfile = Depends(require_auth)
 ):
     try:
@@ -26,6 +27,7 @@ async def list_inspections(
             limit=limit,
             status=status,
             search=search,
+            inspector_id=inspector_id,
             requester_id=user.id,
             is_admin=user.role in {"admin", "administrator"},
         )
