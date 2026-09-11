@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document as WordDocument, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, TableRow, TextRun } from 'docx'
 import {
   Activity, ArrowLeft, ArrowUpRight, BarChart3, Bell, Camera, Check, CheckCircle2, ChevronRight, CircleHelp,
-  ClipboardCheck, Edit3, Eye, FileText, History, ImagePlus, Layers, LayoutDashboard, LoaderCircle,
+  ClipboardCheck, Edit3, Eye, EyeOff, FileText, History, ImagePlus, Layers, LayoutDashboard, LoaderCircle,
   LockKeyhole, LogOut, Mail, Menu, Moon, Save, ScanLine, Search, Settings, ShieldCheck,
   SlidersHorizontal, StopCircle, Sun, SwitchCamera, UploadCloud, UserRound, X, XCircle,
   ExternalLink, Send, Paperclip, BookOpen, AlertTriangle, Download
@@ -140,11 +140,11 @@ function EntryFlow({ onAuthenticated, theme, onToggleTheme }) {
 }
 
 function Splash() {
-  return <div className="entry-screen splash-screen"><div className="splash-orbit orbit-one" /><div className="splash-orbit orbit-two" /><div className="splash-content"><div className="splash-mark"><ShieldCheck size={31} /></div><div className="splash-wordmark">synaptix<span>field intelligence</span></div><div className="splash-loader"><i /><i /><i /></div></div><div className="splash-foot">SIH26034 · LEGAL METROLOGY OPERATIONS</div></div>
+  return <div className="entry-screen splash-screen"><div className="splash-orbit orbit-one" /><div className="splash-orbit orbit-two" /><div className="splash-content"><div className="splash-mark"><img src="/synaptix-logo.png" alt="Synaptix Logo" className="splash-logo-img" /></div><div className="splash-wordmark">synaptix<span>field intelligence</span></div><div className="splash-loader"><i /><i /><i /></div></div><div className="splash-foot">SIH26034 · LEGAL METROLOGY OPERATIONS</div></div>
 }
 
 function EntryHeader({ theme, onToggleTheme, onBack }) {
-  return <header className="entry-header"><div className="entry-brand"><span className="entry-brand-mark"><ShieldCheck size={17} /></span><strong>synaptix</strong></div><div className="entry-header-actions">{onBack && <button className="entry-back" onClick={onBack}><ArrowLeft size={15} /> Back</button>}<ThemeToggle theme={theme} onToggle={onToggleTheme} compact /></div></header>
+  return <header className="entry-header"><div className="entry-brand"><span className="entry-brand-mark"><img src="/synaptix-logo.png" alt="Synaptix Logo" className="brand-logo-img" /></span><strong>synaptix</strong></div><div className="entry-header-actions">{onBack && <button className="entry-back" onClick={onBack}><ArrowLeft size={15} /> Back</button>}<ThemeToggle theme={theme} onToggle={onToggleTheme} compact /></div></header>
 }
 
 function Welcome({ onNext, theme, onToggleTheme }) {
@@ -185,7 +185,63 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme }) {
       }
     } finally { setBusy(false) }
   }
-  return <div className="entry-screen auth-screen"><EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} /><div className="auth-layout"><div className="auth-story"><div className="entry-eyebrow"><span /> SECURE ACCESS / 03</div><h1>{mode === 'login' ? <>Welcome<br /><em>back, {role}.</em></> : <>Make every<br /><em>decision count.</em></>}</h1><p>{mode === 'login' ? 'Choose User or Admin access, then sign in to continue.' : 'Create an account with the access level your work requires.'}</p><div className="auth-proof"><div className="proof-mark"><LockKeyhole size={16} /></div><div><strong>Protected workspace</strong><span>Role-based access · audit-ready records</span></div></div></div><div className="auth-card"><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Sign in</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setError('') }}>Create account</button></div><div className="role-switcher"><button className={role === 'user' ? 'active' : ''} onClick={() => setRole('user')}><UserRound size={15} /><span>User</span><small>Inspection workspace</small></button><button className={role === 'admin' ? 'active' : ''} onClick={() => setRole('admin')}><BarChart3 size={15} /><span>Admin</span><small>System management</small></button></div><div className="auth-card-heading"><span className="auth-card-icon">{role === 'user' ? <UserRound size={18} /> : <BarChart3 size={18} />}</span><div><h2>{role === 'user' ? 'User workspace' : 'Admin workspace'}</h2><p>{mode === 'login' ? 'Use your account details.' : 'It only takes a minute to get started.'}</p></div></div><form onSubmit={submit}>{mode === 'signup' && <label className="auth-field"><span>Full name</span><div><UserRound size={16} /><input required value={form.fullName} onChange={(event) => update('fullName', event.target.value)} placeholder={role === 'user' ? 'Riya Kapoor' : 'Arjun Mehta'} /></div></label>}<label className="auth-field"><span>Email address</span><div><Mail size={16} /><input required type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder={role === 'user' ? 'user@department.gov.in' : 'admin@department.gov.in'} /></div></label><label className="auth-field"><span>Password</span><div><LockKeyhole size={16} /><input required minLength={6} type={showPassword ? 'text' : 'password'} value={form.password} onChange={(event) => update('password', event.target.value)} placeholder="Enter your password" /><button type="button" className="password-toggle" onClick={() => setShowPassword((value) => !value)}>{showPassword ? 'Hide' : 'Show'}</button></div></label>{error && <div className="auth-error"><XCircle size={16} />{error}</div>}<button className="button auth-submit" disabled={busy}>{busy ? <><LoaderCircle size={17} className="spinner" /> Connecting...</> : <>{mode === 'login' ? `Open ${role} workspace` : `Create ${role} account`} <ArrowUpRight size={17} /></>}</button></form><div className="auth-foot">{mode === 'login' ? <>Forgot your password? <button>Contact support</button></> : <>Already have an account? <button onClick={() => setMode('login')}>Sign in instead</button></>}</div></div></div></div>
+  return <div className="entry-screen auth-screen"><EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} /><div className="auth-layout"><div className="auth-story"><div className="entry-eyebrow"><span /> SECURE ACCESS / 03</div><h1>{mode === 'login' ? <>Welcome<br /><em>back, {role}.</em></> : <>Make every<br /><em>decision count.</em></>}</h1><p>{mode === 'login' ? 'Choose User or Admin access, then sign in to continue.' : 'Create an account with the access level your work requires.'}</p><div className="auth-proof"><div className="proof-mark"><LockKeyhole size={16} /></div><div><strong>Protected workspace</strong><span>Role-based access · audit-ready records</span></div></div></div><div className="auth-card"><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Sign in</button><button className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setError('') }}>Create account</button></div><div className="role-switcher"><button className={role === 'user' ? 'active' : ''} onClick={() => setRole('user')}><UserRound size={15} /><span>User</span><small>Inspection workspace</small></button><button className={role === 'admin' ? 'active' : ''} onClick={() => setRole('admin')}><BarChart3 size={15} /><span>Admin</span><small>System management</small></button></div><div className="auth-card-heading"><span className="auth-card-icon">{role === 'user' ? <UserRound size={18} /> : <BarChart3 size={18} />}</span><div><h2>{role === 'user' ? 'User workspace' : 'Admin workspace'}</h2><p>{mode === 'login' ? 'Use your account details.' : 'It only takes a minute to get started.'}</p></div></div><form onSubmit={submit}>
+            {mode === 'signup' && (
+              <label className="auth-field">
+                <span>Full name</span>
+                <div>
+                  <input
+                    required
+                    value={form.fullName}
+                    onChange={(event) => update('fullName', event.target.value)}
+                    placeholder={role === 'user' ? 'Riya Kapoor' : 'Arjun Mehta'}
+                    autoComplete="name"
+                  />
+                </div>
+              </label>
+            )}
+            <label className="auth-field">
+              <span>Email address</span>
+              <div>
+                <input
+                  required
+                  type="email"
+                  value={form.email}
+                  onChange={(event) => update('email', event.target.value)}
+                  placeholder={role === 'user' ? 'user@department.gov.in' : 'admin@department.gov.in'}
+                  autoComplete="email"
+                />
+              </div>
+            </label>
+            <label className="auth-field">
+              <span>Password</span>
+              <div>
+                <input
+                  required
+                  minLength={6}
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={(event) => update('password', event.target.value)}
+                  placeholder="••••••••••••"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword((value) => !value)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </label>
+            {error && <div className="auth-error"><XCircle size={16} />{error}</div>}
+            <button className="button auth-submit" disabled={busy}>
+              {busy ? <><LoaderCircle size={17} className="spinner" /> Connecting...</> : <>{mode === 'login' ? `Open ${role} workspace` : `Create ${role} account`} <ArrowUpRight size={17} /></>}
+            </button>
+          </form><div className="auth-foot">{mode === 'login' ? <>Forgot your password? <button>Contact support</button></> : <>Already have an account? <button onClick={() => setMode('login')}>Sign in instead</button></>}</div></div></div></div>
 }
 
 function App() {
@@ -238,7 +294,13 @@ function App() {
   }, [theme])
 
   function toggleTheme() {
+    const root = document.documentElement
+    root.classList.add('theme-transitioning')
     setTheme((current) => current === 'dark' ? 'light' : 'dark')
+    window.clearTimeout(window.__synaptix_theme_timer)
+    window.__synaptix_theme_timer = window.setTimeout(() => {
+      root.classList.remove('theme-transitioning')
+    }, 380)
   }
 
   function handleAuthenticated(nextUser) {
@@ -290,7 +352,7 @@ function App() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}>
-        <div className="brand"><div className="brand-mark"><ShieldCheck size={20} /></div><div><strong>synaptix</strong><span>field intelligence</span></div></div>
+        <div className="brand"><div className="brand-mark"><img src="/synaptix-logo.png" alt="Synaptix Logo" className="brand-logo-img" /></div><div><strong>synaptix</strong><span>field intelligence</span></div></div>
         <nav className="primary-nav" aria-label="Primary navigation">
           {navItems.map(({ id, label, icon: Icon }) => (
             <button

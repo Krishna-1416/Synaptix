@@ -135,31 +135,40 @@ def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
         region_count = len(cv_result.regions)
         placement = f"Principal Display Panel ({region_count} regions detected)"
 
-        # Generate overlay image as data URI
+        # Generate overlay image as data URI and raw bytes
+        overlay_bytes = None
         overlay_uri = None
         try:
             overlay = cv_result.region_overlay()
             success, encoded = cv2.imencode(".png", overlay)
             if success:
-                overlay_uri = "data:image/png;base64," + base64.b64encode(encoded.tobytes()).decode("ascii")
+                overlay_bytes = encoded.tobytes()
+                overlay_uri = "data:image/png;base64," + base64.b64encode(overlay_bytes).decode("ascii")
         except Exception as oe:
             logger.debug(f"Could not encode CV overlay: {oe}")
 
-        return VisualChecks(
-            readability=readability,
-            font_height=font_h or 1.85,
-            placement=placement,
-            dpi=cv_result.dpi,
-            overlay_image=overlay_uri
+        return (
+            VisualChecks(
+                readability=readability,
+                font_height=font_h or 1.85,
+                placement=placement,
+                dpi=cv_result.dpi,
+                overlay_image=overlay_uri
+            ),
+            overlay_bytes
         )
     except Exception as e:
         logger.warning(f"CV visual checks fallback used: {e}")
-        return VisualChecks(
-            readability="HIGH (Clear)",
-            font_height=1.85,
-            placement="Principal Display Panel",
-            dpi=150.0
+        return (
+            VisualChecks(
+                readability="HIGH (Clear)",
+                font_height=1.85,
+                placement="Principal Display Panel",
+                dpi=150.0
+            ),
+            None
         )
+
 
 
 
