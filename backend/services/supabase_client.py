@@ -39,7 +39,7 @@ def get_supabase_admin_client() -> Optional[Client]:
     if _supabase_admin_client is not None:
         return _supabase_admin_client
 
-    key = settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY
+    key = settings.SUPABASE_SERVICE_ROLE_KEY
     if not settings.SUPABASE_URL or not key:
         logger.warning(
             "Supabase URL or SERVICE_ROLE Key is missing. Running in mock/unconnected mode."

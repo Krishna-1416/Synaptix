@@ -1,7 +1,9 @@
 from typing import Optional
-from fastapi import APIRouter, Query, HTTPException, status
+from fastapi import APIRouter, Query, HTTPException, status, Depends
 from backend.models.inspection import InspectionResult, InspectionListResponse, InspectionUpdateRequest
 from backend.services.inspection_service import InspectionService
+from backend.models.auth import UserProfile
+from backend.api.auth import require_auth
 
 router = APIRouter(prefix="/inspections", tags=["Inspections Repository"])
 
@@ -15,10 +17,18 @@ async def list_inspections(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     status: Optional[str] = Query(None, description="Filter by compliance status: PASS, FAIL, REVIEW"),
-    search: Optional[str] = Query(None, description="Search term for product name or inspection ID")
+    search: Optional[str] = Query(None, description="Search term for product name or inspection ID"),
+    user: UserProfile = Depends(require_auth)
 ):
     try:
-        data = await InspectionService.list_inspections(page=page, limit=limit, status=status, search=search)
+        data = await InspectionService.list_inspections(
+            page=page,
+            limit=limit,
+            status=status,
+            search=search,
+            requester_id=user.id,
+            is_admin=user.role in {"admin", "administrator"},
+        )
         return data
     except Exception as e:
         raise HTTPException(
@@ -32,8 +42,12 @@ async def list_inspections(
     response_model=InspectionResult,
     summary="Retrieve details of a specific inspection record"
 )
-async def get_inspection_details(inspection_id: str):
-    inspection = await InspectionService.get_inspection(inspection_id)
+async def get_inspection_details(inspection_id: str, user: UserProfile = Depends(require_auth)):
+    inspection = await InspectionService.get_inspection(
+        inspection_id,
+        requester_id=user.id,
+        is_admin=user.role in {"admin", "administrator"},
+    )
     if not inspection:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -49,13 +63,17 @@ async def get_inspection_details(inspection_id: str):
 )
 async def update_inspection(
     inspection_id: str,
-    update_req: InspectionUpdateRequest
+    update_req: InspectionUpdateRequest,
+    user: UserProfile = Depends(require_auth)
 ):
     try:
         updated = await InspectionService.update_inspection_fields(
             inspection_id=inspection_id,
             updated_fields=update_req.fields,
-            updated_product=update_req.product
+            updated_product=update_req.product,
+            requester_id=user.id,
+            inspector_id=user.id,
+            is_admin=user.role in {"admin", "administrator"},
         )
         if not updated:
             raise HTTPException(
@@ -76,8 +94,12 @@ async def update_inspection(
     "/{inspection_id}",
     summary="Delete an inspection record"
 )
-async def delete_inspection(inspection_id: str):
-    deleted = await InspectionService.delete_inspection(inspection_id)
+async def delete_inspection(inspection_id: str, user: UserProfile = Depends(require_auth)):
+    deleted = await InspectionService.delete_inspection(
+        inspection_id,
+        requester_id=user.id,
+        is_admin=user.role in {"admin", "administrator"},
+    )
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -33,8 +33,11 @@ class Settings:
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,*").split(",")
         if origin.strip()
     ]
+    CORS_ALLOW_CREDENTIALS: bool = "*" not in CORS_ORIGINS
     
     # Backend port (Render / PaaS injects PORT, fallback to BACKEND_PORT or 8000)
     PORT: int = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    CORS_ORIGIN_REGEX: str = os.getenv("CORS_ORIGIN_REGEX", r"https://[a-z0-9-]+\.vercel\.app")
 
 settings = Settings()

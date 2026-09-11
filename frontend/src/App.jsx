@@ -7,8 +7,8 @@ import {
   SlidersHorizontal, StopCircle, Sun, SwitchCamera, UploadCloud, UserRound, X, XCircle,
   ExternalLink, Send, Paperclip, BookOpen, AlertTriangle, Download
 } from 'lucide-react'
-import { api, demoInspections } from './api'
-import { demoStats } from './demoData'
+import { api, resolveApiUrl } from './api'
+import { demoInspections } from './demoData'
 
 const navItems = [
   { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -27,12 +27,14 @@ let activeInspectionProgress = { extract: 'pending', check: 'pending', decide: '
 
 function normalizeStats(stats = {}) {
   return {
-    total: stats.total ?? stats.total_inspections ?? stats.inspections_count ?? demoStats.total_inspections,
-    pass: stats.compliant ?? stats.passed ?? stats.pass_count ?? stats.compliant_count ?? demoStats.compliant,
-    fail: stats.non_compliant ?? stats.failed ?? stats.fail_count ?? stats.violations_count ?? demoStats.non_compliant,
-    review: stats.review ?? stats.review_count ?? demoStats.review,
-    rate: stats.compliance_rate ?? stats.compliance_rate_pct ?? stats.complianceRate ?? demoStats.compliance_rate,
-    alerts: stats.recent_alerts ?? stats.alerts ?? stats.total_violations_flagged ?? demoStats.recent_alerts
+    total: stats.total ?? stats.total_inspections ?? stats.inspections_count ?? 0,
+    pass: stats.compliant ?? stats.passed ?? stats.pass_count ?? stats.compliant_count ?? 0,
+    fail: stats.non_compliant ?? stats.failed ?? stats.fail_count ?? stats.violations_count ?? 0,
+    review: stats.review ?? stats.review_count ?? 0,
+    rate: stats.compliance_rate ?? stats.compliance_rate_pct ?? stats.complianceRate ?? 0,
+    alerts: stats.recent_alerts ?? stats.alerts ?? stats.total_violations_flagged ?? 0,
+    confidence: stats.average_confidence ?? stats.confidence ?? 0,
+    mostViolatedRules: stats.most_violated_rules || []
   }
 }
 
@@ -53,6 +55,15 @@ function initials(user) {
   return (user?.full_name || 'User').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 }
 
+function consumeOAuthAccessToken() {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const accessToken = hash.get('access_token')
+  if (!accessToken) return null
+  window.localStorage.setItem('synaptix_access_token', accessToken)
+  window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)
+  return accessToken
+}
+
 function percentage(value, fallback = null) {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric <= 1 ? numeric * 100 : numeric))) : fallback
@@ -62,49 +73,169 @@ function inspectionOwnerId(user) {
   return user?.id || user?.user_id || user?.email || 'demo-user'
 }
 
-function createDemoInspection({ file, productName, category, user }) {
-  const imageUrl = URL.createObjectURL(file)
-  const sample = demoInspections.find((inspection) => inspection.compliance?.status === 'FAIL') || demoInspections[0]
+function createDemoInspection({ file, productName, category, user, sampleKey }) {
+  const sample = demoInspections.find((item) => item.inspection_id === sampleKey) || demoInspections[0]
   return {
     ...sample,
-    inspection_id: `SYN-${Date.now().toString().slice(-6)}`,
+    inspection_id: `SYN-DEMO-${Date.now().toString().slice(-6)}`,
     user_id: inspectionOwnerId(user),
     created_at: new Date().toISOString(),
-    image_url: imageUrl,
-    product: { name: productName || sample.product?.name, category: category || sample.product?.category }
+    image_url: file ? URL.createObjectURL(file) : sample.image_url,
+    product: { name: productName || sample.product.name, category: category || sample.product.category }
   }
 }
 
-function asRule(item) {
-  return typeof item === 'string' ? { name: item } : { name: item?.name || item?.label || item?.rule || item?.rule_id, reason: item?.reason || item?.message }
+const STATUTORY_RULES = [
+  { key: 'manufacturer', label: 'Manufacturer / Packer Name & Address', ref: 'Rule 6(1)(a)' },
+  { key: 'country_of_origin', label: 'Country of Origin Declaration', ref: 'Rule 6(1)(n)' },
+  { key: 'generic_name', label: 'Common or Generic Commodity Name', ref: 'Rule 6(1)(b)' },
+  { key: 'net_quantity', label: 'Net Quantity Specification', ref: 'Rule 6(1)(c) & Rule 12' },
+  { key: 'manufacture_date', label: 'Month & Year of Manufacture', ref: 'Rule 6(1)(d)' },
+  { key: 'mrp', label: 'Maximum Retail Price (MRP)', ref: 'Rule 6(1)(e)' },
+  { key: 'unit_sale_price', label: 'Unit Sale Price (USP)', ref: 'Rule 6(1)(m)' },
+  { key: 'consumer_care', label: 'Consumer Care Helpline & Address', ref: 'Rule 6(1)(f)' },
+  { key: 'readability', label: 'Declaration Legibility & Prominence', ref: 'Rule 7 / Rule 9' },
+  { key: 'font_height', label: 'Statutory Minimum Font Height', ref: 'Rule 7 Table 1' },
+  { key: 'placement', label: 'Principal Display Panel Placement', ref: 'Rule 8' }
+]
+
+function normalizeRuleItem(item, defaultStatus = 'PASS') {
+  if (typeof item === 'string') {
+    return { name: item, status: defaultStatus }
+  }
+  return {
+    name: item?.name || item?.label || item?.rule || item?.rule_id || 'Declaration Rule',
+    reason: item?.reason || item?.message || '',
+    ref: item?.ref || '',
+    status: item?.status || defaultStatus
+  }
 }
 
 function inspectionRules(inspection) {
   const compliance = inspection?.compliance || {}
-  const outcomes = inspection?.rule_results || compliance.rule_results || []
-  if (Array.isArray(outcomes) && outcomes.length) {
-    return outcomes.reduce((summary, outcome) => {
+  const outcomes = inspection?.rule_results || compliance.rule_results
+
+  // 1. Explicit rule_results from backend engine
+  if (Array.isArray(outcomes) && outcomes.length > 0) {
+    const summary = { obeyed: [], notObeyed: [], review: [] }
+    for (const outcome of outcomes) {
       const state = String(outcome.status || outcome.result || '').toUpperCase()
-      const rule = asRule(outcome)
-      if (!rule.name) return summary
+      const rule = normalizeRuleItem(outcome, state)
+      if (!rule.name) continue
       if (state === 'PASS') summary.obeyed.push(rule)
       else if (state === 'FAIL') summary.notObeyed.push(rule)
       else summary.review.push(rule)
-      return summary
-    }, { obeyed: [], notObeyed: [], review: [] })
+    }
+    return summary
   }
-  const obeyed = (inspection?.rules_obeyed || []).map(asRule).filter((rule) => rule.name)
-  const unresolved = (inspection?.rules_review || compliance.rules_review || []).map(asRule).filter((rule) => rule.name)
-  const violations = (inspection?.rules_not_obeyed || compliance.violations || []).map(asRule).filter((rule) => rule.name)
-  return { obeyed, notObeyed: compliance.status === 'REVIEW' ? [] : violations, review: compliance.status === 'REVIEW' ? (unresolved.length ? unresolved : violations) : unresolved }
+
+  // 2. Existing demo format with rules_obeyed, rules_not_obeyed, rules_review
+  if (Array.isArray(inspection?.rules_obeyed) || Array.isArray(inspection?.rules_not_obeyed) || Array.isArray(inspection?.rules_review)) {
+    const obeyed = (inspection?.rules_obeyed || []).map((r) => normalizeRuleItem(r, 'PASS'))
+    let notObeyed = (inspection?.rules_not_obeyed || []).map((r) => normalizeRuleItem(r, 'FAIL'))
+    let review = (inspection?.rules_review || compliance.rules_review || []).map((r) => normalizeRuleItem(r, 'REVIEW'))
+
+    // Respect REVIEW status: if overall inspection is REVIEW and notObeyed contains review-flagged items
+    if (compliance.status === 'REVIEW') {
+      const remainingNotObeyed = []
+      for (const item of notObeyed) {
+        if (/review|confirm|manual|unclear|borderline/i.test(item.name + ' ' + (item.reason || '')) || notObeyed.length === 1) {
+          review.push({ ...item, status: 'REVIEW' })
+        } else {
+          remainingNotObeyed.push(item)
+        }
+      }
+      notObeyed = remainingNotObeyed
+    }
+
+    return { obeyed, notObeyed, review }
+  }
+
+  // 3. Dynamic evaluation against Statutory Legal Metrology Rules from fields & violations
+  const fields = inspection?.fields || {}
+  const visual = inspection?.visual_checks || {}
+  const violations = Array.isArray(compliance.violations) ? compliance.violations : []
+  const isOverallReview = compliance.status === 'REVIEW'
+
+  const obeyed = []
+  const notObeyed = []
+  const review = []
+
+  const violationKeywords = {
+    manufacturer: [/manufacturer/i, /packer/i, /importer/i],
+    country_of_origin: [/country of origin/i, /origin/i],
+    generic_name: [/generic/i, /common name/i, /commodity/i],
+    net_quantity: [/net quantity/i, /metric unit/i, /misleading net quantity/i, /weight/i],
+    manufacture_date: [/manufacture/i, /packaging date/i, /mfg/i, /expiry/i, /best before/i],
+    mrp: [/mrp/i, /retail price/i],
+    unit_sale_price: [/unit sale price/i, /usp/i],
+    consumer_care: [/consumer care/i, /helpline/i, /customer care/i, /contact details/i],
+    readability: [/readability/i, /legib/i, /prominent/i],
+    font_height: [/font height/i, /small font/i, /minimum font/i],
+    placement: [/placement/i, /display panel/i, /pdp/i]
+  }
+
+  for (const rule of STATUTORY_RULES) {
+    const patterns = violationKeywords[rule.key] || []
+    const matchingViolation = violations.find((v) => patterns.some((p) => p.test(v)))
+
+    if (matchingViolation) {
+      const isReviewItem = isOverallReview && !/missing mandatory declaration/i.test(matchingViolation)
+      if (isReviewItem || /review|confirm|unclear|borderline/i.test(matchingViolation)) {
+        review.push({ name: rule.label, reason: matchingViolation, ref: rule.ref, status: 'REVIEW' })
+      } else {
+        notObeyed.push({ name: rule.label, reason: matchingViolation, ref: rule.ref, status: 'FAIL' })
+      }
+      continue
+    }
+
+    // No matching violation found
+    if (['readability', 'font_height', 'placement'].includes(rule.key)) {
+      if (rule.key === 'readability') {
+        const rVal = String(visual.readability || '').toUpperCase()
+        if (rVal.includes('REVIEW') || rVal.includes('FAIR') || rVal.includes('UNREADABLE')) {
+          review.push({ name: rule.label, reason: 'Legibility needs verification', ref: rule.ref, status: 'REVIEW' })
+        } else if (visual.readability) {
+          obeyed.push({ name: rule.label, reason: 'Prominent & clearly legible', ref: rule.ref, status: 'PASS' })
+        }
+      } else if (rule.key === 'font_height') {
+        if (visual.font_height) {
+          obeyed.push({ name: rule.label, reason: `Meets prescribed minimum height (${visual.font_height} mm)`, ref: rule.ref, status: 'PASS' })
+        }
+      } else if (rule.key === 'placement') {
+        if (visual.placement) {
+          obeyed.push({ name: rule.label, reason: 'Positioned on Principal Display Panel', ref: rule.ref, status: 'PASS' })
+        }
+      }
+    } else {
+      const val = fields[rule.key]
+      if (val && String(val).trim() && !/^(null|none|n\/a)$/i.test(String(val).trim())) {
+        obeyed.push({ name: rule.label, reason: `Declared: ${val}`, ref: rule.ref, status: 'PASS' })
+      } else if (violations.length === 0 && compliance.status === 'PASS') {
+        obeyed.push({ name: rule.label, ref: rule.ref, status: 'PASS' })
+      }
+    }
+  }
+
+  // Handle any remaining unmapped violations
+  for (const v of violations) {
+    const alreadyMapped = notObeyed.some((r) => r.reason === v) || review.some((r) => r.reason === v)
+    if (!alreadyMapped) {
+      if (isOverallReview || /review/i.test(v)) {
+        review.push({ name: 'Statutory Declaration', reason: v, status: 'REVIEW' })
+      } else {
+        notObeyed.push({ name: 'Statutory Declaration', reason: v, status: 'FAIL' })
+      }
+    }
+  }
+
+  return { obeyed, notObeyed, review }
 }
 
 function inspectionScore(inspection, rules) {
   const value = inspection?.compliance?.score ?? inspection?.compliance?.percentage ?? inspection?.compliance_percentage
   const direct = percentage(value)
   if (direct != null) return direct
-  const hasRuleOutcomes = Array.isArray(inspection?.rule_results) || Array.isArray(inspection?.compliance?.rule_results) || Array.isArray(inspection?.rules_obeyed) || Array.isArray(inspection?.rules_not_obeyed) || Array.isArray(inspection?.rules_review)
-  if (!hasRuleOutcomes) return null
   const total = rules.obeyed.length + rules.notObeyed.length + rules.review.length
   return total ? Math.round((rules.obeyed.length / total) * 100) : null
 }
@@ -112,7 +243,7 @@ function inspectionScore(inspection, rules) {
 function inspectionConfidence(inspection) {
   const direct = percentage(inspection?.compliance?.confidence ?? inspection?.confidence ?? inspection?.confidence_percentage)
   if (direct != null) return direct
-  const values = (inspection?.ocr_raw?.texts || []).map((item) => Number(item.confidence)).filter(Number.isFinite)
+  const values = (inspection?.ocr_raw?.texts || []).map((item) => Number(item.confidence)).filter((v) => Number.isFinite(v) && v > 0)
   return values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) : null
 }
 
@@ -173,17 +304,28 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme }) {
     setError('')
     try {
       const result = mode === 'login' ? await api.login(form) : await api.signup({ ...form, role: role === 'user' ? 'inspector' : 'admin' })
-      if (result.access_token) window.localStorage.setItem('synaptix_access_token', result.access_token)
+      if (!result.access_token) {
+        setError(result.message || 'Account created. Confirm your email, then log in.')
+        return
+      }
+      window.localStorage.setItem('synaptix_access_token', result.access_token)
       const authenticatedUser = result.user || {}
       const authenticatedRole = ['admin', 'administrator'].includes(String(authenticatedUser.role || '').toLowerCase()) ? 'admin' : 'user'
       onAuthenticated({ ...authenticatedUser, full_name: authenticatedRole === 'admin' ? 'Synaptix Admin' : authenticatedUser.full_name || form.email.split('@')[0] || 'Synaptix User', role: authenticatedRole })
     } catch (caught) {
-      if (/502|Failed to fetch|NetworkError/i.test(caught.message || '')) {
-        onAuthenticated({ full_name: form.email.split('@')[0] || (role === 'user' ? 'Synaptix User' : 'Synaptix Admin'), role })
-      } else {
-        setError(caught.message || 'Unable to authenticate. Please try again.')
-      }
+      setError(caught.message || 'Unable to authenticate. Please try again.')
     } finally { setBusy(false) }
+  }
+  async function continueWithGoogle() {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.startGoogleLogin()
+      window.location.assign(result.url)
+    } catch (caught) {
+      setError(caught.message || 'Google authentication is unavailable.')
+      setBusy(false)
+    }
   }
   return <div className="entry-screen auth-screen">
     <EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} />
@@ -290,6 +432,9 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme }) {
             )}
           </button>
         </form>
+        <button type="button" className="button secondary google-auth-button" onClick={continueWithGoogle} disabled={busy}>
+          Continue with Google
+        </button>
 
         <div className="auth-foot">
           {mode === 'login' ? (
@@ -305,14 +450,14 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme }) {
 
 function App() {
   const [theme, setTheme] = useState(() => window.localStorage.getItem('synaptix_theme') || 'light')
-  const [authenticated, setAuthenticated] = useState(() => window.localStorage.getItem('synaptix_authenticated') === 'true')
-  const [user, setUser] = useState(() => JSON.parse(window.localStorage.getItem('synaptix_user') || '{"full_name":"Riya Kapoor","role":"user"}'))
+  const [authenticated, setAuthenticated] = useState(() => Boolean(window.localStorage.getItem('synaptix_access_token') || new URLSearchParams(window.location.hash.replace(/^#/, '')).get('access_token')))
+  const [user, setUser] = useState(() => JSON.parse(window.localStorage.getItem('synaptix_user') || '{"full_name":"User","role":"user"}'))
   const [activeView, setActiveView] = useState('dashboard')
   const [selectedId, setSelectedId] = useState(null)
   const [scanResult, setScanResult] = useState(null)
   const [stats, setStats] = useState(normalizeStats())
-  const [inspections, setInspections] = useState(demoInspections)
-  const [isDemo, setIsDemo] = useState(true)
+  const [inspections, setInspections] = useState([])
+  const [isApiConnected, setIsApiConnected] = useState(false)
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -330,20 +475,41 @@ function App() {
   }
 
   useEffect(() => {
+    consumeOAuthAccessToken()
+    const token = window.localStorage.getItem('synaptix_access_token')
+    if (!token) {
+      setAuthenticated(false)
+      return undefined
+    }
     let mounted = true
-    Promise.all([api.getDashboardStats(), api.getInspections({ limit: 50 })])
+    api.getCurrentUser().then((currentUser) => {
+      if (mounted) handleAuthenticated(currentUser)
+    }).catch(() => {
+      if (mounted) signOut()
+    })
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    if (!authenticated) {
+      setLoading(false)
+      return undefined
+    }
+    let mounted = true
+    const statsRequest = isAdmin(user) ? api.getDashboardStats() : Promise.resolve(null)
+    Promise.all([statsRequest, api.getInspections({ limit: 50 })])
       .then(([remoteStats, remoteInspections]) => {
         if (!mounted) return
-        setStats(normalizeStats(remoteStats))
+        if (remoteStats) setStats(normalizeStats(remoteStats))
         setInspections(remoteInspections.data || [])
-        setIsDemo(false)
+        setIsApiConnected(true)
       })
       .catch(() => {
-        if (mounted) setNotice('API offline: showing sample inspection data. Set VITE_API_BASE_URL when connecting a deployed backend.')
+        if (mounted) setNotice('Unable to connect to the inspection backend. Set VITE_API_BASE_URL to your deployed backend origin, then reload.')
       })
       .finally(() => mounted && setLoading(false))
     return () => { mounted = false }
-  }, [])
+  }, [authenticated, user])
 
   const selectedInspection = useMemo(() => inspections.find((item) => item.inspection_id === selectedId), [inspections, selectedId])
 
@@ -366,7 +532,6 @@ function App() {
     const normalizedUser = { ...nextUser, role: isAdmin(nextUser) ? 'admin' : 'user' }
     setUser(normalizedUser)
     setAuthenticated(true)
-    window.localStorage.setItem('synaptix_authenticated', 'true')
     window.localStorage.setItem('synaptix_user', JSON.stringify(normalizedUser))
   }
 
@@ -374,7 +539,6 @@ function App() {
     setAuthenticated(false)
     setAccountOpen(false)
     setSignOutOpen(false)
-    window.localStorage.removeItem('synaptix_authenticated')
     window.localStorage.removeItem('synaptix_access_token')
     window.localStorage.removeItem('synaptix_user')
   }
@@ -413,7 +577,7 @@ function App() {
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}>
         <div className="brand"><div className="brand-mark"><img src="/synaptix-logo.png" alt="Synaptix Logo" className="brand-logo-img" /></div><div><strong>synaptix</strong><span>field intelligence</span></div></div>
         <nav className="primary-nav" aria-label="Primary navigation">
-          {navItems.map(({ id, label, icon: Icon }) => (
+          {navItems.filter(({ id }) => id !== 'enforcement' || isAdmin(user)).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               title={sidebarCollapsed ? label : undefined}
@@ -487,17 +651,17 @@ function App() {
             </div>
           </div>
           <div className="topbar-actions">
-            <span className={`connection-dot ${isDemo ? 'offline' : ''}`}><Activity size={14} /> {isDemo ? 'Demo mode' : 'API connected'}</span>
+            <span className={`connection-dot ${isApiConnected ? '' : 'offline'}`}><Activity size={14} /> {isApiConnected ? 'API connected' : 'API unavailable'}</span>
             <ThemeToggle theme={theme} onToggle={toggleTheme} compact />
             <button className="icon-button" aria-label="Notifications"><Bell size={18} /><i /></button>
           </div>
         </header>
         {notice && <div className="notice"><CircleHelp size={17} /><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss"><X size={16} /></button></div>}
         {activeView === 'dashboard' && <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} />}
-        {activeView === 'scan' && (scanResult ? <Detail inspection={scanResult} onBack={() => setScanResult(null)} onReport={() => setActiveView('enforcement')} /> : <Scan user={user} onComplete={handleInspectionComplete} onCancel={() => setActiveView('dashboard')} />)}
+        {activeView === 'scan' && (scanResult ? <Detail inspection={scanResult} canEnforce={isAdmin(user)} onBack={() => setScanResult(null)} onReport={() => setActiveView('enforcement')} /> : <Scan user={user} onComplete={handleInspectionComplete} onCancel={() => setActiveView('dashboard')} />)}
         {activeView === 'history' && <HistoryView inspections={inspections} user={user} onOpen={openInspection} onNavigate={setActiveView} />}
-        {activeView === 'detail' && <Detail inspection={selectedInspection} onBack={() => setActiveView('history')} onReport={() => setActiveView('enforcement')} />}
-        {activeView === 'enforcement' && <EnforcementView user={user} inspection={selectedInspection || inspections[0]} onNavigate={setActiveView} />}
+        {activeView === 'detail' && <Detail inspection={selectedInspection} canEnforce={isAdmin(user)} onBack={() => setActiveView('history')} onReport={() => setActiveView('enforcement')} />}
+        {activeView === 'enforcement' && (isAdmin(user) ? <EnforcementView user={user} inspection={selectedInspection || inspections[0]} onNavigate={setActiveView} /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} />)}
         {activeView === 'analytics' && (isAdmin(user) ? <AnalyticsView stats={stats} inspections={inspections} /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} />)}
         {activeView === 'configuration' && <ConfigurationView theme={theme} onToggleTheme={toggleTheme} />}
         {activeView === 'documentation' && (isAdmin(user) ? <DocumentationView /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} />)}
@@ -623,6 +787,7 @@ function AnalyticsView({ stats, inspections = [] }) {
           icon={Bell}
           tone="orange"
         />
+        <Metric label="Average confidence" value={`${Number(stats.confidence || 0).toFixed(1)}%`} detail="Across returned inspections" icon={Activity} tone="ink" />
       </section>
 
       <div className="analytics-grid">
@@ -696,6 +861,10 @@ function AnalyticsView({ stats, inspections = [] }) {
             </div>
           )}
         </section>
+        <section className="panel category-panel">
+          <div className="panel-heading"><div><div className="eyebrow">Rule signals</div><h2>Most violated rules</h2></div><AlertTriangle size={18} className="muted-icon" /></div>
+          {stats.mostViolatedRules.length ? <div className="category-list">{stats.mostViolatedRules.map((item) => <div className="category-row" key={item.rule}><div><span>{item.rule}</span><small>{item.count} finding{item.count === 1 ? '' : 's'}</small></div><strong>{item.count}</strong></div>)}</div> : <div className="analytics-empty">No rule violations recorded yet.</div>}
+        </section>
       </div>
     </div>
   )
@@ -731,6 +900,7 @@ function Scan({ onComplete, onCancel, user }) {
   const [file, setFile] = useState(null)
   const [productName, setProductName] = useState('')
   const [category, setCategory] = useState('Packaged Commodity')
+  const [selectedSampleId, setSelectedSampleId] = useState(null)
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -741,12 +911,14 @@ function Scan({ onComplete, onCancel, user }) {
   const streamRef = useRef(null)
 
   useEffect(() => () => stopCamera(), [])
+
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraOpen(false)
   }
+
   async function startCamera() {
     setCameraError('')
     if (!navigator.mediaDevices?.getUserMedia) return setCameraError('Live camera is unavailable in this browser. Use the image picker instead.')
@@ -757,6 +929,7 @@ function Scan({ onComplete, onCancel, user }) {
       window.setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play() } }, 0)
     } catch (caught) { setCameraError(caught.name === 'NotAllowedError' ? 'Camera permission was denied. Enable it in the browser and try again.' : 'Could not open the camera. Use the image picker instead.') }
   }
+
   function capturePhoto() {
     const video = videoRef.current
     if (!video || !video.videoWidth) return setCameraError('Camera is still starting. Try again in a moment.')
@@ -764,13 +937,43 @@ function Scan({ onComplete, onCancel, user }) {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob((blob) => { if (blob) { setFile(new File([blob], `synaptix-capture-${Date.now()}.jpg`, { type: 'image/jpeg' })); stopCamera() } }, 'image/jpeg', .92)
+    canvas.toBlob((blob) => {
+      if (blob) {
+        setFile(new File([blob], `synaptix-capture-${Date.now()}.jpg`, { type: 'image/jpeg' }))
+        stopCamera()
+      }
+    }, 'image/jpeg', 0.92)
   }
+
+  function selectSample(id) {
+    const sample = demoInspections.find((item) => item.inspection_id === id)
+    if (!sample) return
+    setSelectedSampleId(id)
+    setProductName(sample.product.name)
+    setCategory(sample.product.category)
+    setError('')
+    setFile(new File([new Blob([`SYNAPTIX_DEMO_SAMPLE:${sample.product.name}`], { type: 'image/jpeg' })], `${sample.product.name.replace(/\s+/g, '_').toLowerCase()}_label.jpg`, { type: 'image/jpeg' }))
+  }
+
   async function submit(event) {
     event.preventDefault()
-    if (!file) return setError('Choose an image or capture a label first.')
+    if (!file) return setError('Choose an image before starting the inspection.')
     setSubmitting(true)
     setError('')
+
+    if (selectedSampleId) {
+      setProgress({ extract: 'processing', check: 'pending', decide: 'pending', message: 'Running the sample through the inspection flow...' })
+      window.setTimeout(() => {
+        const demoResult = createDemoInspection({ file, productName, category, user, sampleKey: selectedSampleId })
+        const completed = { extract: 'completed', check: 'completed', decide: 'completed', message: 'Demo inspection complete' }
+        activeInspectionProgress = completed
+        setProgress(completed)
+        setSubmitting(false)
+        onComplete(demoResult)
+      }, 550)
+      return
+    }
+
     const startedProgress = { extract: 'processing', check: 'pending', decide: 'pending', message: 'Extracting information...' }
     activeInspectionProgress = startedProgress
     setProgress(startedProgress)
@@ -785,13 +988,6 @@ function Scan({ onComplete, onCancel, user }) {
       if (!extracted || !checked || !decided) throw new Error('The inspection response did not include all processing stages.')
       onComplete(result)
     } catch (caught) {
-      if (/Failed to fetch|NetworkError|500|502|503|404/i.test(caught.message || '')) {
-        const demoResult = createDemoInspection({ file, productName, category, user })
-        activeInspectionProgress = { extract: 'completed', check: 'completed', decide: 'completed', message: 'Demo inspection complete' }
-        setProgress(activeInspectionProgress)
-        onComplete(demoResult)
-        return
-      }
       setError(caught.message || 'Inspection failed.')
       setProgress((current) => {
         const failedProgress = { ...current, [current.extract === 'processing' ? 'extract' : current.check === 'processing' ? 'check' : 'decide']: 'failed', message: caught.message || 'Inspection failed.' }
@@ -800,8 +996,103 @@ function Scan({ onComplete, onCancel, user }) {
       })
     } finally { setSubmitting(false) }
   }
-  function acceptFile(nextFile) { if (nextFile && nextFile.type.startsWith('image/')) { setFile(nextFile); setError('') } else setError('Please choose a JPG, PNG, or WEBP image.') }
-  return <div className="page scan-page"><PageIntro eyebrow="New inspection" title="Read the label." description="Capture a live package image or upload a clear photo for analysis." action={<button className="text-button" onClick={onCancel}>Cancel</button>} /><form className="scan-layout" onSubmit={submit}><div className="scan-main">{cameraOpen ? <div className="camera-viewfinder"><video ref={videoRef} playsInline muted /><div className="viewfinder-frame"><i /><i /><i /><i /></div><div className="viewfinder-guide"><ScanLine size={16} /> Align the full label inside the frame</div><div className="camera-controls"><button type="button" className="camera-control" onClick={stopCamera}><StopCircle size={18} /> Close</button><button type="button" className="capture-button" onClick={capturePhoto} aria-label="Capture label photo"><Camera size={22} /></button><button type="button" className="camera-control" onClick={startCamera}><SwitchCamera size={18} /> Reset</button></div></div> : <><div className={`upload-zone ${dragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}><input id="label-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => acceptFile(event.target.files[0])} />{file ? <div className="file-preview"><ImagePlus size={25} /><div><strong>{file.name}</strong><span>{(file.size / 1024 / 1024).toFixed(2)} MB · ready for analysis</span></div><button type="button" className="remove-file" onClick={() => setFile(null)} aria-label="Remove file"><X size={17} /></button></div> : <label htmlFor="label-image"><div className="upload-icon"><UploadCloud size={24} /></div><strong>Drop the product label here</strong><span>or <u>browse files</u> · JPG, PNG or WEBP up to 10 MB</span></label>}</div><button type="button" className="camera-launch" onClick={startCamera}><Camera size={17} /> Use live camera</button></>}{cameraError && <div className="form-error camera-error"><Camera size={16} />{cameraError}</div>}<div className="scan-note"><ShieldCheck size={17} /><span>The image is processed by the Synaptix inspection pipeline. No source images are sent anywhere except your configured backend.</span></div></div><aside className="scan-sidebar"><div className="panel form-panel"><div className="eyebrow">Inspection context</div><h2>Tell us what we are looking at.</h2><label>Product name <span>Optional</span><input value={productName} onChange={(event) => setProductName(event.target.value)} placeholder="e.g. Harvest Gold Rice" /></label><label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Packaged Commodity</option><option>Food & beverage</option><option>Personal care</option><option>Household</option><option>Other</option></select></label>{error && <div className="form-error"><XCircle size={16} />{error}</div>}<button className="button primary wide" disabled={submitting}>{submitting ? <><LoaderCircle className="spinner" size={17} /> Analysing label...</> : <><ClipboardCheck size={17} /> Run inspection</>}</button></div><div className="pipeline-list"><div className="eyebrow">What happens next</div><PipelineStep number="01" title="Extract" text="OCR finds mandatory declarations." /><PipelineStep number="02" title="Check" text="Visual rules assess readability." /><PipelineStep number="03" title="Decide" text="Rule 6 produces the result." /></div></aside></form></div>
+
+  function acceptFile(nextFile) {
+    if (nextFile && nextFile.type.startsWith('image/')) {
+      setFile(nextFile)
+      setSelectedSampleId(null)
+      setError('')
+    } else {
+      setError('Please choose a JPG, PNG, or WEBP image.')
+    }
+  }
+
+  return (
+    <div className="page scan-page">
+      <PageIntro
+        eyebrow="New inspection"
+        title="Read the label."
+        description="Capture a live package image or upload a clear photo for analysis."
+        action={<button className="text-button" onClick={onCancel}>Cancel</button>}
+      />
+      <form className="scan-layout" onSubmit={submit}>
+        <div className="scan-main">
+          {cameraOpen ? (
+            <div className="camera-viewfinder">
+              <video ref={videoRef} playsInline muted />
+              <div className="viewfinder-frame"><i /><i /><i /><i /></div>
+              <div className="viewfinder-guide"><ScanLine size={16} /> Align the full label inside the frame</div>
+              <div className="camera-controls">
+                <button type="button" className="camera-control" onClick={stopCamera}><StopCircle size={18} /> Close</button>
+                <button type="button" className="capture-button" onClick={capturePhoto} aria-label="Capture label photo"><Camera size={22} /></button>
+                <button type="button" className="camera-control" onClick={startCamera}><SwitchCamera size={18} /> Reset</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div
+                className={`upload-zone ${dragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`}
+                onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}
+              >
+                <input id="label-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => acceptFile(event.target.files[0])} />
+                {file ? (
+                  <div className="file-preview">
+                    <ImagePlus size={25} />
+                    <div>
+                      <strong>{file.name}</strong>
+                      <span>{file.size > 1000 ? `${(file.size / 1024 / 1024).toFixed(2)} MB · ready for analysis` : 'Label photo ready for analysis'}</span>
+                    </div>
+                    <button type="button" className="remove-file" onClick={() => setFile(null)} aria-label="Remove file"><X size={17} /></button>
+                  </div>
+                ) : (
+                  <label htmlFor="label-image">
+                    <div className="upload-icon"><UploadCloud size={24} /></div>
+                    <strong>Drop the product label here</strong>
+                    <span>or <u>browse files</u> · JPG, PNG or WEBP up to 10 MB</span>
+                  </label>
+                )}
+              </div>
+
+              <div className="sample-products-bar">
+                <div className="sample-title"><BookOpen size={13} /> Demo mode samples</div>
+                <div className="sample-chips">
+                  {demoInspections.map((sample) => (
+                    <button key={sample.inspection_id} type="button" className={`sample-chip ${selectedSampleId === sample.inspection_id ? 'selected' : ''}`} onClick={() => selectSample(sample.inspection_id)}>
+                      <span>{sample.product.name}</span><span className={`chip-status ${sample.compliance.status.toLowerCase()}`}>{sample.compliance.status}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button type="button" className="camera-launch" onClick={startCamera}><Camera size={17} /> Use live camera</button>
+            </>
+          )}
+          {cameraError && <div className="form-error camera-error"><Camera size={16} />{cameraError}</div>}
+          <div className="scan-note"><ShieldCheck size={17} /><span>The image is processed by the Synaptix inspection pipeline. No source images are sent anywhere except your configured backend.</span></div>
+        </div>
+        <aside className="scan-sidebar">
+          <div className="panel form-panel">
+            <div className="eyebrow">Inspection context</div>
+            <h2>Tell us what we are looking at.</h2>
+            <label>Product name <span>Optional</span><input value={productName} onChange={(event) => setProductName(event.target.value)} placeholder="e.g. Harvest Gold Rice" /></label>
+            <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Packaged Commodity</option><option>Food & beverage</option><option>Personal care</option><option>Household</option><option>Other</option></select></label>
+            {error && <div className="form-error"><XCircle size={16} />{error}</div>}
+            <button className="button primary wide" disabled={submitting}>
+              {submitting ? <><LoaderCircle className="spinner" size={17} /> Analysing label...</> : <><ClipboardCheck size={17} /> Run inspection</>}
+            </button>
+          </div>
+          <div className="pipeline-list">
+            <div className="eyebrow">What happens next</div>
+            <PipelineStep number="01" title="Extract" text="OCR finds mandatory declarations." />
+            <PipelineStep number="02" title="Check" text="Visual rules assess readability." />
+            <PipelineStep number="03" title="Decide" text="Rule 6 produces the result." />
+          </div>
+        </aside>
+      </form>
+    </div>
+  )
 }
 function PipelineStep({ number, title, text, status }) {
   const currentStatus = status || activeInspectionProgress[title.toLowerCase()] || 'pending'
@@ -838,11 +1129,10 @@ function ReportExport({ inspection, loading, setLoading }) {
   const [open, setOpen] = useState(false)
   async function exportReport(type) {
     setLoading(true)
-    const html = reportHtml(inspection)
-    if (type === 'pdf') {
-      const reportWindow = window.open('', '_blank', 'noopener,noreferrer')
-      if (reportWindow) { reportWindow.document.write(html); reportWindow.document.close(); reportWindow.focus(); window.setTimeout(() => reportWindow.print(), 250) }
-    } else {
+    try {
+      if (type === 'pdf') {
+        await api.downloadReport(inspection.inspection_id)
+      } else {
       const rules = inspectionRules(inspection)
       const score = inspectionScore(inspection, rules)
       const confidence = inspectionConfidence(inspection)
@@ -851,18 +1141,30 @@ function ReportExport({ inspection, loading, setLoading }) {
       const ruleParagraphs = (items) => items.map((item) => new Paragraph({ text: `${item.name}${item.reason ? `: ${item.reason}` : ''}`, bullet: { level: 0 } }))
       const children = [new Paragraph({ text: 'synaptix', heading: HeadingLevel.TITLE }), new Paragraph({ text: 'Inspection report' }), new Table({ rows: rows.map(([label, value]) => new TableRow({ children: [new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })] }), new TableCell({ children: [new Paragraph(value)] })] })) }), new Paragraph({ text: 'Rules obeyed', heading: HeadingLevel.HEADING_2 }), ...ruleParagraphs(rules.obeyed), new Paragraph({ text: 'Rules not obeyed', heading: HeadingLevel.HEADING_2 }), ...ruleParagraphs(rules.notObeyed), ...(rules.review.length ? [new Paragraph({ text: 'Rules requiring review', heading: HeadingLevel.HEADING_2 }), ...ruleParagraphs(rules.review)] : [])]
       if (inspection.image_url) {
-        try { const data = await fetch(inspection.image_url).then((response) => response.arrayBuffer()); children.splice(3, 0, new Paragraph({ text: 'Evidence image', heading: HeadingLevel.HEADING_2 }), new Paragraph({ children: [new ImageRun({ data, transformation: { width: 360, height: 240 } })] })) } catch { children.splice(3, 0, new Paragraph('Evidence image could not be embedded in this export.')) }
+        try {
+          const response = await fetch(resolveApiUrl(inspection.image_url))
+          if (!response.ok) throw new Error('Evidence image request failed')
+          const data = await response.arrayBuffer()
+          children.splice(3, 0, new Paragraph({ text: 'Evidence image', heading: HeadingLevel.HEADING_2 }), new Paragraph({ children: [new ImageRun({ data, transformation: { width: 360, height: 240 } })] }))
+        } catch {
+          children.splice(3, 0, new Paragraph('Evidence image could not be embedded in this export.'))
+        }
       }
       const blob = await Packer.toBlob(new WordDocument({ sections: [{ children }] }))
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a'); anchor.href = url; anchor.download = `Synaptix_Inspection_${inspection.inspection_id}.docx`; anchor.click(); URL.revokeObjectURL(url)
+      }
+      setOpen(false)
+    } catch (error) {
+      window.alert(error.message || 'The report could not be exported.')
+    } finally {
+      setLoading(false)
     }
-    setOpen(false); window.setTimeout(() => setLoading(false), 250)
   }
   return <div className="export-control"><button className="button secondary" onClick={() => setOpen((value) => !value)} disabled={loading}><Download size={17} /> {loading ? 'Preparing...' : 'Export report'}</button>{open && <div className="export-menu"><button onClick={() => exportReport('pdf')}><FileText size={15} /> Export as PDF</button><button onClick={() => exportReport('word')}><FileText size={15} /> Export as Word (.docx)</button></div>}</div>
 }
 
-function Detail({ inspection, onBack, onReport }) {
+function Detail({ inspection, onBack, onReport, canEnforce = false }) {
   const [loading, setLoading] = useState(false)
   const [fullInspection, setFullInspection] = useState(inspection)
   const [imageMode, setImageMode] = useState('overlay')
@@ -943,15 +1245,8 @@ function Detail({ inspection, onBack, onReport }) {
     }
   }
 
-  const resolveMediaUrl = (path) => {
-    if (!path) return null
-    return path.startsWith('http')
-      ? path
-      : `${(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')}${path}`
-  }
-
-  const rawImageUrl = resolveMediaUrl(fullInspection.image_url)
-  const overlayImageUrl = resolveMediaUrl(fullInspection.annotated_image_url || visual.overlay_image)
+  const rawImageUrl = resolveApiUrl(fullInspection.image_url)
+  const overlayImageUrl = resolveApiUrl(fullInspection.annotated_image_url || visual.overlay_image)
   const hasOverlay = Boolean(overlayImageUrl)
   const hasRaw = Boolean(rawImageUrl)
   const displayedImageUrl = (imageMode === 'overlay' && hasOverlay) ? overlayImageUrl : (rawImageUrl || overlayImageUrl)
@@ -964,7 +1259,7 @@ function Detail({ inspection, onBack, onReport }) {
       <PageIntro
         eyebrow={fullInspection.inspection_id}
         title={fullInspection.product?.name || 'Unnamed product'}
-        description={`${fullInspection.product?.category || 'Packaged commodity'} · inspected ${formatDate(fullInspection.created_at)}`}
+        description={`${fullInspection.product?.category || 'Packaged commodity'} · source ${fullInspection.image_id || 'label photo'} · inspected ${formatDate(fullInspection.created_at)}`}
         action={
           <ReportExport inspection={fullInspection} loading={loading} setLoading={setLoading} />
         }
@@ -1147,7 +1442,7 @@ function Detail({ inspection, onBack, onReport }) {
           <div className="rule-group not-obeyed"><div className="eyebrow">Rules not obeyed</div>{ruleSummary.notObeyed.length ? ruleSummary.notObeyed.map((rule, index) => <div className="rule-result" key={`${rule.name}-${index}`}><AlertTriangle size={17} /><span>{rule.name}</span>{rule.reason && <small>{rule.reason}</small>}</div>) : <p>No failed rules returned.</p>}</div>
         </div>
         {ruleSummary.review.length > 0 && <div className="rule-group review-rules"><div className="eyebrow">Rules requiring review</div>{ruleSummary.review.map((rule, index) => <div className="rule-result" key={`${rule.name}-${index}`}><CircleHelp size={17} /><span>{rule.name}</span>{rule.reason && <small>{rule.reason}</small>}</div>)}</div>}
-        <button className="button primary report-enforcement" onClick={onReport}><Send size={16} /> Report to Enforcement Official</button>
+        {canEnforce && <button className="button primary report-enforcement" onClick={onReport}><Send size={16} /> Report to Enforcement Official</button>}
       </section>
     </div>
   )
