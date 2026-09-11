@@ -1,11 +1,13 @@
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
 async function request(path, options = {}) {
+  const token = window.localStorage.getItem('synaptix_access_token')
   const response = await fetch(`${API_BASE_URL}${path}`, {
     cache: 'no-store',
     ...options,
     headers: {
       ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
   })
