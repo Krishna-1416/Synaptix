@@ -16,7 +16,7 @@ The Vite development server proxies `/api` to `http://localhost:8000`. Start the
 uvicorn backend.main:app --reload --port 8000
 ```
 
-For a deployed backend, copy `.env.example` to `.env` and set `VITE_API_BASE_URL` to the API origin, for example `https://api.example.com`.
+For a deployed backend, set the Vercel project environment variable `VITE_API_BASE_URL` to the API origin, for example `https://api.example.com` (no trailing slash), then redeploy the frontend. The backend deployment must define `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `FRONTEND_URL`, and `CORS_ORIGINS`.
 
 ## Backend connection points
 
