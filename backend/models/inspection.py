@@ -56,12 +56,21 @@ class InspectionResult(BaseModel):
     inspection_id: str
     image_id: Optional[str] = None
     image_url: Optional[str] = None
+    annotated_image_url: Optional[str] = None
     product: ProductInfo = Field(default_factory=ProductInfo)
     ocr_raw: Optional[OCRRaw] = None
     fields: MandatoryFields = Field(default_factory=MandatoryFields)
     visual_checks: Optional[VisualChecks] = None
     compliance: ComplianceResult = Field(default_factory=ComplianceResult)
     created_at: Optional[str] = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class InspectionUpdateRequest(BaseModel):
+    """
+    Inspector Override payload: allows updating extracted fields and/or product details.
+    """
+    fields: Optional[MandatoryFields] = None
+    product: Optional[ProductInfo] = None
 
 
 class InspectionListResponse(BaseModel):

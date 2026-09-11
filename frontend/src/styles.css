@@ -166,3 +166,183 @@
 @media (max-width: 700px) { .visualizer-heading { flex-direction: column; }.visualizer-fields { grid-template-columns: repeat(2, 1fr); }.camera-controls { gap: 16px; }.camera-viewfinder, .camera-viewfinder video { min-height: 300px; }.viewfinder-frame { width: 82%; height: 60%; } }
 :root[data-theme='dark'] .entry-brand-mark,
 :root[data-theme='dark'] .brand-mark { background: #b8ebc1; color: #102117; box-shadow: 0 0 0 1px rgba(184, 235, 193, .28), 0 4px 14px rgba(0, 0, 0, .22); }
+
+/* Detection Overlay & Inspector Override Styles */
+.detail-image-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.detail-image-header .eyebrow {
+  margin-bottom: 0;
+}
+.image-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: #e7ede7;
+  border-radius: 6px;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid #d4dfd4;
+}
+.image-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: #5b695e;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 4px;
+  transition: all 0.16s ease;
+  cursor: pointer;
+}
+.image-mode-btn:hover {
+  color: var(--ink);
+}
+.image-mode-btn.active {
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.detail-image-frame {
+  position: relative;
+}
+.overlay-badge {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(18, 28, 22, 0.88);
+  backdrop-filter: blur(4px);
+  color: #b8ebc1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-family: 'DM Mono', monospace;
+  letter-spacing: 0.05em;
+  border: 1px solid rgba(184, 235, 193, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.button.small {
+  padding: 6px 11px;
+  font-size: 10px;
+  border-radius: 5px;
+}
+.button.text-button.small {
+  padding: 6px 8px;
+  font-size: 10px;
+}
+.edit-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.field-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.field-row.editing {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  padding: 10px 0;
+}
+.field-row.editing span {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.edit-field-input {
+  width: 100%;
+  border: 1px solid #d7ded6;
+  border-radius: 4px;
+  padding: 8px 11px;
+  font-size: 11px;
+  color: var(--ink);
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.edit-field-input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
+}
+.form-success.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid #b8e0c4;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.form-error.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--red-soft);
+  color: var(--red);
+  border: 1px solid #f2c2bf;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+/* Dark mode overrides */
+:root[data-theme='dark'] .image-mode-toggle {
+  background: #19251e;
+  border-color: #34463a;
+}
+:root[data-theme='dark'] .image-mode-btn {
+  color: #a3b5a6;
+}
+:root[data-theme='dark'] .image-mode-btn:hover {
+  color: #ffffff;
+}
+:root[data-theme='dark'] .image-mode-btn.active {
+  background: #25382c;
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+:root[data-theme='dark'] .edit-field-input {
+  background: #1f2d24;
+  border-color: #405446;
+  color: #eef8ef;
+}
+:root[data-theme='dark'] .edit-field-input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(114, 207, 140, 0.2);
+}
+:root[data-theme='dark'] .form-success.banner {
+  background: #1c3625;
+  color: #a8efb4;
+  border-color: #2b563a;
+}
+:root[data-theme='dark'] .form-error.banner {
+  background: #441f1e;
+  color: #ffaaa3;
+  border-color: #692e2c;
+}
