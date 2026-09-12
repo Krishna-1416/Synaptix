@@ -814,7 +814,12 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div className="topbar-left">
-            <button className="mobile-menu" aria-label="Open menu" onClick={() => setMobileNavOpen((open) => !open)}>
+            <button className="mobile-menu" aria-label="Open menu" onClick={() => {
+              setMobileNavOpen((open) => {
+                if (!open) setSidebarCollapsed(false)
+                return !open
+              })
+            }}>
               <Menu size={20} />
             </button>
             <div className="breadcrumb">

@@ -1849,9 +1849,48 @@ td span {
     to { opacity: 1; }
   }
 
-  .sidebar-rail-toggle,
-  .sidebar-collapse-btn {
-    display: none !important;
+  /* Railway toggle on mobile: prominent, touch-ergonomic on sidebar border */
+  .sidebar-rail-toggle {
+    display: flex !important;
+    position: absolute !important;
+    top: 50% !important;
+    right: -15px !important;
+    transform: translateY(-50%) !important;
+    z-index: 120 !important;
+    width: 30px !important;
+    height: 30px !important;
+    border-radius: 50% !important;
+    background: var(--surface-2, rgba(20, 26, 48, 0.95)) !important;
+    border: 1.5px solid rgba(99, 91, 255, 0.45) !important;
+    color: var(--muted) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 10px rgba(99, 91, 255, 0.25) !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    transition: all 0.2s ease !important;
+  }
+
+  .sidebar-rail-toggle::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+
+  .sidebar-rail-toggle:hover,
+  .sidebar-rail-toggle:active {
+    background: rgba(99, 91, 255, 0.25) !important;
+    border-color: rgba(99, 91, 255, 0.8) !important;
+    color: var(--ink) !important;
+    transform: translateY(-50%) scale(1.1) !important;
+  }
+
+  :root[data-theme='light'] .sidebar-rail-toggle {
+    background: #ffffff !important;
+    border-color: rgba(99, 91, 255, 0.35) !important;
+    color: #4F46E5 !important;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15) !important;
   }
 
   .sidebar {
@@ -1859,16 +1898,19 @@ td span {
     top: 0 !important;
     bottom: 0 !important;
     left: 0 !important;
-    width: 280px !important;
+    width: 260px !important;
     max-width: 85vw !important;
     height: 100vh !important;
     height: 100dvh !important;
     z-index: 100 !important;
     transform: translateX(-100%) !important;
-    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                width 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+                padding 0.28s cubic-bezier(0.16, 1, 0.3, 1) !important;
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.6) !important;
     display: flex !important;
     visibility: hidden;
+    overflow: visible !important;
   }
 
   .sidebar.open {
@@ -1876,35 +1918,167 @@ td span {
     visibility: visible !important;
   }
 
-  /* Reset collapsed sidebar rules inside mobile drawer */
-  .sidebar.collapsed {
-    width: 280px !important;
-    padding: 24px 14px 18px !important;
-  }
-  .sidebar.collapsed .brand {
+  /* Expanded state on mobile (when not collapsed): perfect left alignment and spacing */
+  .sidebar.open:not(.collapsed) .brand,
+  .sidebar:not(.collapsed) .brand {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
     padding: 0 10px 24px !important;
     justify-content: flex-start !important;
   }
-  .sidebar.collapsed .nav-item span,
-  .sidebar.collapsed .nav-item .nav-count,
-  .sidebar.collapsed .sidebar-heading,
-  .sidebar.collapsed .brand > div:not(.brand-mark),
-  .sidebar.collapsed .user-chip > div:not(.avatar),
-  .sidebar.collapsed .user-chip > svg,
-  .sidebar.collapsed .theme-toggle > span:not(.theme-toggle-icon),
-  .sidebar.collapsed .logout span {
+  .sidebar.open:not(.collapsed) .brand-mark,
+  .sidebar:not(.collapsed) .brand-mark {
+    width: 44px !important;
+    height: 44px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+  }
+  .sidebar.open:not(.collapsed) .brand > div:not(.brand-mark),
+  .sidebar:not(.collapsed) .brand > div:not(.brand-mark) {
+    display: block !important;
     opacity: 1 !important;
     width: auto !important;
     max-width: 200px !important;
-    pointer-events: auto !important;
-    margin: inherit !important;
-    padding: inherit !important;
-    flex: inherit !important;
+  }
+  .sidebar.open:not(.collapsed) .nav-item,
+  .sidebar:not(.collapsed) .nav-item {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    padding: 10px 14px !important;
+    text-align: left !important;
+  }
+  .sidebar.open:not(.collapsed) .nav-item svg,
+  .sidebar:not(.collapsed) .nav-item svg {
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+    display: block !important;
+  }
+  .sidebar.open:not(.collapsed) .nav-item span,
+  .sidebar:not(.collapsed) .nav-item span {
+    opacity: 1 !important;
+    width: auto !important;
+    max-width: 200px !important;
+    display: inline-block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    text-align: left !important;
+    flex-shrink: 0 !important;
+  }
+  .sidebar.open:not(.collapsed) .nav-item .nav-count,
+  .sidebar:not(.collapsed) .nav-item .nav-count {
+    margin-left: auto !important;
+    opacity: 1 !important;
+    display: inline-block !important;
+    width: auto !important;
+  }
+  .sidebar.open:not(.collapsed) .sidebar-heading,
+  .sidebar:not(.collapsed) .sidebar-heading {
+    display: block !important;
+    opacity: 1 !important;
+    width: auto !important;
+    padding: 0 12px 6px !important;
+  }
+  .sidebar.open:not(.collapsed) .user-chip,
+  .sidebar:not(.collapsed) .user-chip {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 10px !important;
+    padding: 8px 10px !important;
+  }
+  .sidebar.open:not(.collapsed) .user-chip .avatar,
+  .sidebar:not(.collapsed) .user-chip .avatar {
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+  }
+  .sidebar.open:not(.collapsed) .user-chip > div:not(.avatar),
+  .sidebar:not(.collapsed) .user-chip > div:not(.avatar) {
+    display: block !important;
+    opacity: 1 !important;
+    width: auto !important;
+    max-width: 160px !important;
+    text-align: left !important;
+  }
+  .sidebar.open:not(.collapsed) .user-chip > svg,
+  .sidebar:not(.collapsed) .user-chip > svg {
+    display: block !important;
+    opacity: 1 !important;
+    margin-left: auto !important;
+  }
+  .sidebar.open:not(.collapsed) .sidebar-rail-toggle svg,
+  .sidebar:not(.collapsed) .sidebar-rail-toggle svg {
+    transform: rotate(0deg) !important;
+  }
+
+  /* Collapsed state on mobile: clean 68px mini-rail with centered icons */
+  .sidebar.collapsed {
+    width: 68px !important;
+    padding: 25px 8px 18px !important;
+  }
+  .sidebar.collapsed .brand {
+    padding: 0 0 24px !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+  .sidebar.collapsed .brand-mark {
+    width: 42px !important;
+    height: 42px !important;
+    margin: 0 auto !important;
+    flex-shrink: 0 !important;
+  }
+  .sidebar.collapsed .brand > div:not(.brand-mark) {
+    opacity: 0 !important;
+    width: 0 !important;
+    max-width: 0 !important;
+    display: none !important;
   }
   .sidebar.collapsed .nav-item {
-    justify-content: flex-start !important;
-    padding: 10px 14px !important;
-    gap: 12px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 11px 0 !important;
+    gap: 0 !important;
+    width: 100% !important;
+  }
+  .sidebar.collapsed .nav-item svg {
+    margin: 0 auto !important;
+    flex-shrink: 0 !important;
+    display: block !important;
+  }
+  .sidebar.collapsed .nav-item span,
+  .sidebar.collapsed .nav-item .nav-count,
+  .sidebar.collapsed .sidebar-heading {
+    opacity: 0 !important;
+    width: 0 !important;
+    max-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: none !important;
+  }
+  .sidebar.collapsed .user-chip {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 6px 0 !important;
+    gap: 0 !important;
+    width: 100% !important;
+  }
+  .sidebar.collapsed .user-chip .avatar {
+    margin: 0 auto !important;
+    flex-shrink: 0 !important;
+  }
+  .sidebar.collapsed .user-chip > div:not(.avatar),
+  .sidebar.collapsed .user-chip > svg {
+    opacity: 0 !important;
+    width: 0 !important;
+    max-width: 0 !important;
+    display: none !important;
+  }
+  .sidebar.collapsed .sidebar-rail-toggle svg {
+    transform: rotate(180deg) !important;
   }
 
   /* Header & Topbar Mobile Optimization */
