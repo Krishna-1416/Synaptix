@@ -3,9 +3,10 @@ import { Document as WordDocument, HeadingLevel, ImageRun, Packer, Paragraph, Ta
 import {
   Activity, ArrowLeft, ArrowUpRight, BarChart3, Bell, Camera, Check, CheckCircle2, ChevronRight, CircleHelp,
   ClipboardCheck, Edit3, Eye, EyeOff, FileText, History, ImagePlus, Layers, LayoutDashboard, LoaderCircle,
-  LockKeyhole, LogOut, Menu, Moon, Save, ScanLine, Search, Settings, ShieldCheck,
+  LogOut, Menu, Moon, Save, ScanLine, Search, Settings, ShieldCheck,
   StopCircle, Sun, SwitchCamera, UploadCloud, UserRound, X, XCircle,
-  ExternalLink, Send, Paperclip, BookOpen, AlertTriangle, Download
+  ExternalLink, Send, Paperclip, BookOpen, AlertTriangle, Download,
+  Zap, FileCheck, Languages, Sparkles
 } from 'lucide-react'
 import { api, resolveApiUrl } from './api'
 import { demoStats, demoInspections } from './demoData'
@@ -182,8 +183,8 @@ function StatusBadge({ status, lang = 'en' }) {
 function ThemeToggle({ theme, onToggle, compact = false }) {
   const isDark = theme === 'dark'
   return (
-    <button className={`theme-toggle ${compact ? 'compact' : ''}`} onClick={onToggle} aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}>
-      <span className="theme-toggle-icon">{isDark ? <Sun size={15} /> : <Moon size={15} />}</span>
+    <button type="button" className={`theme-toggle ${compact ? 'compact' : ''}`} onClick={onToggle} aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}>
+      <span className="theme-toggle-icon">{isDark ? <Sun size={18} /> : <Moon size={18} />}</span>
       {!compact && <span>{isDark ? 'Light mode' : 'Dark mode'}</span>}
     </button>
   )
@@ -240,32 +241,150 @@ function EntryHeader({ theme, onToggleTheme, onBack, lang, setLang }) {
 function Welcome({ onNext, theme, onToggleTheme, lang, setLang }) {
   return (
     <div className="entry-screen welcome-screen">
+      <div className="ambient-glow ambient-glow-one" aria-hidden="true" />
+      <div className="ambient-glow ambient-glow-two" aria-hidden="true" />
       <EntryHeader theme={theme} onToggleTheme={onToggleTheme} lang={lang} setLang={setLang} />
+      
       <div className="welcome-content">
         <div className="welcome-copy">
-          <div className="entry-eyebrow"><span /> INSPECTION INTELLIGENCE / 01</div>
-          <h1>Clarity for every<br /><em>compliant</em> label.</h1>
-          <p>Synaptix turns a package photograph into a clear, defensible compliance decision for the officers who keep commerce honest.</p>
-          <button className="button entry-cta" onClick={onNext}>Enter the workspace <ArrowUpRight size={17} /></button>
-          <div className="welcome-meta">
-            <span><ShieldCheck size={15} /> Rule 6 aware</span>
-            <span><Activity size={15} /> OCR + vision pipeline</span>
+          <h1>
+            Clarity for every<br />
+            <em>compliant</em> label.
+          </h1>
+
+          <div className="welcome-cta-group">
+            <button className="button entry-cta" onClick={onNext}>
+              <span>Enter the workspace</span>
+              <span className="cta-icon-wrap"><ArrowUpRight size={17} /></span>
+            </button>
+          </div>
+
+          <div className="welcome-trust-strip">
+            <div className="trust-item">
+              <Zap size={14} className="trust-icon" />
+              <span><strong>0.8s</strong> Latency</span>
+            </div>
+            <div className="trust-divider" />
+            <div className="trust-item">
+              <ShieldCheck size={14} className="trust-icon" />
+              <span><strong>PCR 2011</strong> Rule 6</span>
+            </div>
+            <div className="trust-divider" />
+            <div className="trust-item">
+              <FileCheck size={14} className="trust-icon" />
+              <span><strong>PDF & DOCX</strong> Proof</span>
+            </div>
+            <div className="trust-divider" />
+            <div className="trust-item">
+              <Languages size={14} className="trust-icon" />
+              <span><strong>EN | हिं | म</strong></span>
+            </div>
           </div>
         </div>
+
         <div className="welcome-art">
-          <div className="art-grid" />
-          <div className="label-card">
-            <div className="label-card-top"><span>PRODUCT LABEL</span><ShieldCheck size={17} /></div>
-            <div className="label-card-title">Harvest<br /><strong>Gold</strong></div>
-            <div className="label-card-line" />
-            <div className="label-card-details"><span>NET QTY</span><strong>5 kg</strong><span>MRP</span><strong>Rs. 640.00</strong></div>
-            <div className="scan-line" />
+          <div className="scanner-stage">
+            <div className="scanner-grid" aria-hidden="true" />
+
+            <div className="scanner-package-card">
+              <div className="package-glass-shimmer" />
+
+              <div className="package-topbar">
+                <span className="package-reg">PCR-2011 · DISPLAY PANEL</span>
+                <span className="package-seal"><ShieldCheck size={13} /> CERTIFIED</span>
+              </div>
+
+              <div className="package-brand">
+                <span className="brand-sub">HERITAGE PACKAGING</span>
+                <h2>Harvest <em>Gold</em></h2>
+                <div className="brand-tag">Traditional Basmati Rice</div>
+              </div>
+
+              <div className="package-divider" />
+
+              <div className="package-declarations">
+                <div className="package-field spotlight-pulse" style={{ animationDelay: '0s' }}>
+                  <div className="field-target-box">
+                    <span className="target-rule-tag">Rule 6(1)(b)</span>
+                    <span className="target-label">NET QUANTITY</span>
+                    <strong className="target-val">5 kg</strong>
+                    <span className="target-check"><Check size={11} strokeWidth={3} /></span>
+                  </div>
+                </div>
+
+                <div className="package-field spotlight-pulse" style={{ animationDelay: '0.4s' }}>
+                  <div className="field-target-box">
+                    <span className="target-rule-tag">Rule 6(1)(e)</span>
+                    <span className="target-label">MAX RETAIL PRICE</span>
+                    <strong className="target-val">₹640.00</strong>
+                    <span className="target-check"><Check size={11} strokeWidth={3} /></span>
+                  </div>
+                </div>
+
+                <div className="package-field spotlight-pulse" style={{ animationDelay: '0.8s' }}>
+                  <div className="field-target-box">
+                    <span className="target-rule-tag">Rule 6(1)(f)</span>
+                    <span className="target-label">UNIT SALE PRICE</span>
+                    <strong className="target-val">₹128.00 / kg</strong>
+                    <span className="target-check"><Check size={11} strokeWidth={3} /></span>
+                  </div>
+                </div>
+
+                <div className="package-field spotlight-pulse" style={{ animationDelay: '1.2s' }}>
+                  <div className="field-target-box">
+                    <span className="target-rule-tag">Rule 6(1)(d)</span>
+                    <span className="target-label">MFG DATE</span>
+                    <strong className="target-val">04 / 2026</strong>
+                    <span className="target-check"><Check size={11} strokeWidth={3} /></span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="package-footer">
+                <div className="barcode-sim">
+                  <span /><span /><span /><span /><span /><span /><span /><span /><span /><span />
+                  <span /><span /><span /><span /><span /><span /><span /><span /><span /><span />
+                </div>
+                <div className="package-lic">FSSAI Lic. 10014011002231 · Batch #0248</div>
+              </div>
+
+              <div className="scanner-laser-wrap" aria-hidden="true">
+                <div className="scanner-laser-line" />
+                <div className="scanner-laser-cone" />
+              </div>
+            </div>
+
+            <div className="floating-badge badge-top-right">
+              <div className="badge-icon green"><ShieldCheck size={15} /></div>
+              <div className="badge-copy">
+                <span>Rule 6(1) Check</span>
+                <strong>100% Passed</strong>
+              </div>
+            </div>
+
+            <div className="floating-badge badge-bottom-left">
+              <div className="badge-icon iris"><Activity size={15} /></div>
+              <div className="badge-copy">
+                <span>Vision Pipeline</span>
+                <strong>98.4% Confidence</strong>
+              </div>
+            </div>
+
+            <div className="floating-badge badge-bottom-right">
+              <div className="badge-icon blue"><Sparkles size={14} /></div>
+              <div className="badge-copy">
+                <span>Rule 7 Font</span>
+                <strong>Height ≥ 4.0mm</strong>
+              </div>
+            </div>
           </div>
-          <div className="art-note note-one"><span>01</span><strong>OCR extraction</strong><small>Every declaration, found.</small></div>
-          <div className="art-note note-two"><span>02</span><strong>Rule validation</strong><small>Every decision, traceable.</small></div>
         </div>
       </div>
-      <div className="entry-footer"><span>Built for enforcement teams</span><span>Scroll to inspect <ChevronRight size={14} /></span></div>
+
+      <div className="entry-footer">
+        <span><ShieldCheck size={12} /> SIH26034 · Central Legal Metrology Enforcement Framework</span>
+        <span>Secure Officer Access <ChevronRight size={13} /></span>
+      </div>
     </div>
   )
 }
@@ -315,17 +434,23 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
     <div className="entry-screen auth-screen">
       <EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} lang={lang} setLang={setLang} />
       <div className="auth-layout">
-        <div className="auth-story">
-          <div className="entry-eyebrow"><span /> SECURE ACCESS / 02</div>
-          <div key={`${mode}-${role}`} className="auth-story-dynamic">
-            <h1>{mode === 'login' ? <>Welcome<br /><em>back, {role}.</em></> : <>Make every<br /><em>decision count.</em></>}</h1>
-            <p>{mode === 'login' ? `Choose User or Admin access, then sign in to continue.` : 'Create an account with the access level your work requires.'}</p>
+        <div className="auth-feature-card">
+          <div className="feature-card-mesh" aria-hidden="true">
+            <div className="mesh-glow mesh-glow-1" />
+            <div className="mesh-glow mesh-glow-2" />
+            <div className="mesh-glow mesh-glow-3" />
+            <div className="mesh-glow mesh-glow-4" />
           </div>
-          <div className="auth-proof">
-            <div className="proof-mark"><LockKeyhole size={16} /></div>
-            <div>
-              <strong>Protected workspace</strong>
-              <span>Role-based access · audit-ready records</span>
+
+          <div className="feature-card-bottom">
+            <div key={`${mode}-${role}`} className="auth-story-dynamic">
+              <h1 className="feature-headline">
+                {mode === 'login' ? (
+                  <>Welcome back,<br /><span className="auth-highlight">{role}.</span></>
+                ) : (
+                  <>Make every<br /><span className="auth-highlight">decision count.</span></>
+                )}
+              </h1>
             </div>
           </div>
         </div>
@@ -367,8 +492,14 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
               )}
             </button>
           </form>
-          <button type="button" className="button secondary google-auth-button" onClick={continueWithGoogle} disabled={busy}>
-            Continue with Google
+          <button type="button" className="google-auth-button" onClick={continueWithGoogle} disabled={busy}>
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" className="google-icon">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.25 21.36 7.33 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.16 0 9.94 0 12s.46 3.84 1.26 5.42l4.02-3.15z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.25 2.64 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+            </svg>
+            <span>Continue with Google</span>
           </button>
           <div className="auth-foot">
             {mode === 'login' ? (
