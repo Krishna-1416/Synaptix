@@ -22,6 +22,7 @@ class PreprocessHandoff:
 
     MIN_DIMENSION: int = 32
     MAX_DIMENSION: int = 8192
+    TARGET_MAX_DIMENSION: int = 1600
 
     @classmethod
     def load_and_validate(cls, source: Union[np.ndarray, str, Path, bytes, bytearray]) -> np.ndarray:
@@ -102,5 +103,12 @@ class PreprocessHandoff:
             raise ImageValidationError(
                 f"Image resolution exceeds threshold: {w}x{h} (maximum {cls.MAX_DIMENSION}x{cls.MAX_DIMENSION})"
             )
+
+        # Scale down oversized images to conserve memory on 512MB containers (Render)
+        if max(h, w) > cls.TARGET_MAX_DIMENSION:
+            scale = cls.TARGET_MAX_DIMENSION / float(max(h, w))
+            new_w = max(int(round(w * scale)), cls.MIN_DIMENSION)
+            new_h = max(int(round(h * scale)), cls.MIN_DIMENSION)
+            image_array = cv2.resize(image_array, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
         return image_array
