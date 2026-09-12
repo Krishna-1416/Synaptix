@@ -187,9 +187,8 @@ function EntryFlow({ onAuthenticated, theme, onToggleTheme, lang, setLang }) {
     return () => window.clearTimeout(timer)
   }, [])
   if (screen === 'splash') return <Splash />
-  if (screen === 'welcome') return <Welcome onNext={() => setScreen('portal')} theme={theme} onToggleTheme={onToggleTheme} lang={lang} setLang={setLang} />
-  if (screen === 'portal') return <PortalSelection onSelect={() => setScreen('login')} onBack={() => setScreen('welcome')} theme={theme} onToggleTheme={onToggleTheme} lang={lang} setLang={setLang} />
-  return <Auth onBack={() => setScreen('portal')} onAuthenticated={onAuthenticated} theme={theme} onToggleTheme={onToggleTheme} lang={lang} setLang={setLang} />
+  if (screen === 'welcome') return <Welcome onNext={() => setScreen('login')} theme={theme} onToggleTheme={onToggleTheme} lang={lang} setLang={setLang} />
+  return <Auth onBack={() => setScreen('welcome')} onAuthenticated={onAuthenticated} theme={theme} onToggleTheme={onToggleTheme} lang={lang} setLang={setLang} />
 }
 
 function Splash() {
@@ -262,54 +261,6 @@ function Welcome({ onNext, theme, onToggleTheme, lang, setLang }) {
   )
 }
 
-function PortalSelection({ onSelect, onBack, theme, onToggleTheme, lang, setLang }) {
-  return (
-    <div className="entry-screen portal-screen">
-      <EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} lang={lang} setLang={setLang} />
-      <div className="portal-layout">
-        <div className="portal-content">
-          <div className="entry-eyebrow"><span /> YOUR WORKSPACE / 02</div>
-          <h1>Choose your<br /><em>workspace.</em></h1>
-          <p className="portal-intro">Open the Synaptix workspace for your inspection work.</p>
-          <div className="portal-grid">
-            <button className="portal-card selected" onClick={onSelect}>
-              <div className="portal-card-icon"><ShieldCheck size={23} /></div>
-              <div className="portal-card-copy">
-                <span>For field teams</span>
-                <h2>Inspector portal</h2>
-                <p>Scan labels, review declarations, and issue compliance certificates.</p>
-              </div>
-              <span className="portal-arrow"><ArrowUpRight size={18} /></span>
-              <div className="portal-card-caption">Recommended for you</div>
-            </button>
-          </div>
-          <div className="portal-help"><CircleHelp size={16} /><span>Your account will open the inspection workspace automatically.</span></div>
-        </div>
-        <PortalVisual />
-      </div>
-    </div>
-  )
-}
-
-function PortalVisual() {
-  return (
-    <div className="portal-visual" aria-hidden="true">
-      <div className="visual-orbit visual-orbit-one" />
-      <div className="visual-orbit visual-orbit-two" />
-      <div className="inspection-sheet">
-        <div className="sheet-header"><span>LABEL / 0248</span><ShieldCheck size={16} /></div>
-        <div className="sheet-brand">Harvest <em>Gold</em></div>
-        <div className="sheet-copy"><i /><i /><i /></div>
-        <div className="sheet-details"><span>NET QTY</span><strong>5 kg</strong><span>MRP</span><strong>Rs. 640.00</strong></div>
-        <div className="sheet-scan" />
-      </div>
-      <div className="visual-chip chip-ocr"><Activity size={14} /><span>OCR found<br /><strong>06 fields</strong></span></div>
-      <div className="visual-chip chip-pass"><Check size={14} /><span>Rule check<br /><strong>Passed</strong></span></div>
-      <div className="visual-caption">LIVE LABEL ANALYSIS <span>●</span></div>
-    </div>
-  )
-}
-
 function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) {
   const [mode, setMode] = useState('signup')
   const [role, setRole] = useState('user')
@@ -344,7 +295,7 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
       <EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} lang={lang} setLang={setLang} />
       <div className="auth-layout">
         <div className="auth-story">
-          <div className="entry-eyebrow"><span /> SECURE ACCESS / 03</div>
+          <div className="entry-eyebrow"><span /> SECURE ACCESS / 02</div>
           <div key={`${mode}-${role}`} className="auth-story-dynamic">
             <h1>{mode === 'login' ? <>Welcome<br /><em>back, {role}.</em></> : <>Make every<br /><em>decision count.</em></>}</h1>
             <p>{mode === 'login' ? `Choose User or Admin access, then sign in to continue.` : 'Create an account with the access level your work requires.'}</p>
