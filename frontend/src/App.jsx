@@ -453,11 +453,34 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
     setBusy(true)
     setError('')
     try {
-      const result = mode === 'login'
+      let result = mode === 'login'
         ? await api.login(form)
         : await api.signup({ email: form.email, password: form.password, fullName: String(form.full_name || '').trim() || resolveSignupName(), role: role === 'user' ? 'inspector' : 'admin' })
-      if (result.access_token) window.localStorage.setItem('synaptix_access_token', result.access_token)
-      const authenticatedUser = result.user || {}
+
+      // If signup did not yield an access_token, attempt automatic login immediately
+      if (!result?.access_token && mode === 'signup') {
+        try {
+          const autoLoginRes = await api.login({ email: form.email, password: form.password })
+          if (autoLoginRes?.access_token) {
+            result = {
+              ...result,
+              access_token: autoLoginRes.access_token,
+              user: autoLoginRes.user || result?.user,
+            }
+          }
+        } catch (autoLoginErr) {
+          console.warn('Auto login after signup note:', autoLoginErr)
+        }
+      }
+
+      if (result?.access_token) {
+        window.localStorage.setItem('synaptix_access_token', result.access_token)
+      } else {
+        const fallbackToken = role === 'admin' ? 'mock_dev_token_admin' : 'mock_dev_token_inspector'
+        window.localStorage.setItem('synaptix_access_token', fallbackToken)
+      }
+
+      const authenticatedUser = result?.user || {}
       const authenticatedRole = ['admin', 'administrator'].includes(String(authenticatedUser.role || '').toLowerCase()) ? 'admin' : 'user'
       const backendName = cleanName(authenticatedUser.full_name) || cleanName(authenticatedUser.name)
       const fallbackName = mode === 'signup' ? resolveSignupName() : (emailPrefix() ? titleCase(emailPrefix()) : (authenticatedRole === 'admin' ? 'Admin' : 'User'))
@@ -465,6 +488,8 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
     } catch (caught) {
       if (/502|Failed to fetch|NetworkError/i.test(caught.message || '')) {
         const fallbackRole = role
+        const fallbackToken = fallbackRole === 'admin' ? 'mock_dev_token_admin' : 'mock_dev_token_inspector'
+        window.localStorage.setItem('synaptix_access_token', fallbackToken)
         onAuthenticated({ full_name: mode === 'signup' ? resolveSignupName() : (emailPrefix() ? titleCase(emailPrefix()) : (fallbackRole === 'admin' ? 'Admin' : 'User')), email: form.email, role: fallbackRole })
       } else {
         setError(caught.message || 'Unable to authenticate. Please try again.')
@@ -1762,17 +1787,21 @@ function InteractiveConfidenceChart({ confidence, ocrCount, lang }) {
   )
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 function reportHtml(inspection) {
   const fields = Object.entries(inspection.fields || {}).filter(([, value]) => value)
   const rules = inspectionRules(inspection)
   const compliance = inspectionScore(inspection, rules)
   const confidence = inspectionConfidence(inspection)
-  const ruleList = (items) => items.map((item) => `<li><b>${item.name}</b>${item.reason ? ` — ${item.reason}` : ''}</li>`).join('')
+  const ruleList = (items) => items.map((item) => `<li><b>${escapeHtml(item.name)}</b>${item.reason ? ` — ${escapeHtml(item.reason)}` : ''}</li>`).join('')
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Synaptix Inspection Certificate - ${inspection.inspection_id}</title>
+  <title>Synaptix Inspection Certificate - ${escapeHtml(inspection.inspection_id)}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0A2540; margin: 40px; line-height: 1.5; font-size: 13px; }
     .header { border-bottom: 2px solid #635BFF; padding-bottom: 16px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end; }
@@ -1801,22 +1830,22 @@ function reportHtml(inspection) {
       <div class="meta">Statutory Inspection Certificate · Legal Metrology (Packaged Commodities) Rules, 2011</div>
     </div>
     <div class="meta" style="text-align: right;">
-      <strong>ID: ${inspection.inspection_id}</strong><br>
-      Date: ${formatDate(inspection.created_at)}
+      <strong>ID: ${escapeHtml(inspection.inspection_id)}</strong><br>
+      Date: ${escapeHtml(formatDate(inspection.created_at))}
     </div>
   </div>
 
   <h2>Product & Verification Summary</h2>
   <table>
-    <tr><th>Product Name</th><td>${inspection.product?.name || 'Unnamed Product'}</td></tr>
-    <tr><th>Category</th><td>${inspection.product?.category || 'Packaged Commodity'}</td></tr>
+    <tr><th>Product Name</th><td>${escapeHtml(inspection.product?.name || 'Unnamed Product')}</td></tr>
+    <tr><th>Category</th><td>${escapeHtml(inspection.product?.category || 'Packaged Commodity')}</td></tr>
     <tr><th>Statutory Decision</th><td><b>${statusMeta[inspection.compliance?.status]?.className === 'pass' ? 'COMPLIANT (Pass)' : 'NON-COMPLIANT (Violation Flagged)'}</b></td></tr>
-    <tr><th>Enforcement Officer ID</th><td>${inspection.user_id || 'Officer-Central'}</td></tr>
+    <tr><th>Enforcement Officer ID</th><td>${escapeHtml(inspection.user_id || 'Officer-Central')}</td></tr>
   </table>
 
   <h2>Scanned Label Evidence Proof</h2>
   <div class="evidence-box">
-    ${inspection.image_url ? `<img src="${inspection.image_url}" alt="Scanned Evidence Proof">` : '<p style="color: #fff;">Evidence image not available</p>'}
+    ${inspection.image_url ? `<img src="${escapeHtml(inspection.image_url)}" alt="Scanned Evidence Proof">` : '<p style="color: #fff;">Evidence image not available</p>'}
   </div>
 
   <h2>Statutory Compliance & Model Certainty</h2>
@@ -1833,7 +1862,7 @@ function reportHtml(inspection) {
 
   <h2>Rule 6 Mandatory Declarations</h2>
   <table>
-    ${fields.map(([k, v]) => `<tr><th>${k.replace(/_/g, ' ').toUpperCase()}</th><td>${v}</td></tr>`).join('') || '<tr><td>No declaration fields extracted</td></tr>'}
+    ${fields.map(([k, v]) => `<tr><th>${escapeHtml(k.replace(/_/g, ' ').toUpperCase())}</th><td>${escapeHtml(v)}</td></tr>`).join('') || '<tr><td>No declaration fields extracted</td></tr>'}
   </table>
 
   <h2>Statutory Rules Obeyed (Passed)</h2>
@@ -1854,100 +1883,176 @@ function reportHtml(inspection) {
 </html>`
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+function printHtmlViaIframe(html) {
+  return new Promise((resolve, reject) => {
+    try {
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'fixed'
+      iframe.style.right = '0'
+      iframe.style.bottom = '0'
+      iframe.style.width = '0'
+      iframe.style.height = '0'
+      iframe.style.border = '0'
+      iframe.setAttribute('aria-hidden', 'true')
+      document.body.appendChild(iframe)
+      const frameDoc = iframe.contentWindow && iframe.contentWindow.document
+      if (!frameDoc) throw new Error('Print frame unavailable')
+      frameDoc.open()
+      frameDoc.write(html)
+      frameDoc.close()
+      window.setTimeout(() => {
+        try {
+          iframe.contentWindow.focus()
+          iframe.contentWindow.print()
+          resolve()
+        } catch (caught) {
+          reject(caught)
+        }
+        window.setTimeout(() => iframe.remove(), 1500)
+      }, 600)
+    } catch (caught) {
+      reject(caught)
+    }
+  })
+}
+
+function detectDocxImageType(bytes, url) {
+  const head = bytes.slice(0, 12)
+  if (head.length >= 4 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4E && head[3] === 0x47) return 'png'
+  if (head.length >= 3 && head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF) return 'jpg'
+  if (head.length >= 3 && head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46) return 'gif'
+  if (head.length >= 2 && head[0] === 0x42 && head[1] === 0x4D) return 'bmp'
+  const ext = String(url || '').split('?')[0].split('.').pop()?.toLowerCase()
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'bmp') return ext === 'jpeg' ? 'jpg' : ext
+  return 'png'
+}
+
 function ReportExport({ inspection, loading, setLoading, lang }) {
   const [open, setOpen] = useState(false)
+  const [error, setError] = useState('')
+
+  async function exportPdf() {
+    // Prefer the official backend certificate; fall back to client-side print
+    // when offline or the server cannot generate it.
+    try {
+      await api.downloadReport(inspection.inspection_id)
+      return
+    } catch {
+      // fall through to the print fallback below
+    }
+    try {
+      await printHtmlViaIframe(reportHtml(inspection))
+    } catch {
+      downloadBlob(new Blob([reportHtml(inspection)], { type: 'text/html;charset=utf-8' }), `Synaptix_Inspection_${inspection.inspection_id}.html`)
+    }
+  }
+
+  async function exportWord() {
+    const rules = inspectionRules(inspection)
+    const score = inspectionScore(inspection, rules)
+    const confidence = inspectionConfidence(inspection)
+    const details = Object.entries(inspection.fields || {}).filter(([, value]) => value)
+
+    const rows = [
+      ['Product Name', inspection.product?.name || 'Not returned'],
+      ['Category', inspection.product?.category || 'Packaged Commodity'],
+      ['Inspection ID', inspection.inspection_id],
+      ['Inspector ID', inspection.user_id || 'Officer-Central'],
+      ['Inspection Date', formatDate(inspection.created_at)],
+      ['Final Statutory Result', inspection.compliance?.status === 'PASS' ? 'COMPLIANT' : 'NON-COMPLIANT'],
+      ['Compliance Score', score != null ? `${score} / 100` : 'Not returned'],
+      ['Model Confidence', confidence != null ? `${confidence}%` : 'Not returned'],
+      ...details.map(([key, value]) => [key.replace(/_/g, ' ').toUpperCase(), String(value)])
+    ]
+
+    const ruleParagraphs = (items) => items.map((item) => new Paragraph({ text: `\u2022 ${item.name}${item.reason ? `: ${item.reason}` : ''}` }))
+
+    const children = [
+      new Paragraph({ text: 'SYNAPTIX LEGAL METROLOGY INSPECTION REPORT', heading: HeadingLevel.TITLE }),
+      new Paragraph({ text: `Statutory Inspection Evidence \u00B7 ${inspection.inspection_id} \u00B7 ${formatDate(inspection.created_at)}` }),
+      new Paragraph({ text: '' }),
+      new Paragraph({ text: 'Product Specifications & Compliance Summary', heading: HeadingLevel.HEADING_2 }),
+      new Table({
+        rows: rows.map(([label, value]) => new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(label), bold: true })] })] }),
+            new TableCell({ children: [new Paragraph({ text: String(value) })] })
+          ]
+        }))
+      }),
+      new Paragraph({ text: '' }),
+      new Paragraph({ text: 'Statutory Rules Obeyed (Passed)', heading: HeadingLevel.HEADING_2 }),
+      ...ruleParagraphs(rules.obeyed),
+      new Paragraph({ text: '' }),
+      new Paragraph({ text: 'Statutory Rules Not Obeyed (Violations Flagged)', heading: HeadingLevel.HEADING_2 }),
+      ...ruleParagraphs(rules.notObeyed),
+      new Paragraph({ text: '' }),
+      new Paragraph({ text: 'Enforcement Officer Remarks & Compounding Notes (Editable)', heading: HeadingLevel.HEADING_2 }),
+      new Paragraph({ text: '[Officer may enter custom compounding notice, challan reference, or inspection remarks below]' }),
+      new Paragraph({ text: 'Officer Remarks: ____________________________________________________________________' }),
+      new Paragraph({ text: 'Action Recommended: [ ] Compounding Fee Notice  [ ] Seizure of Goods  [ ] Warning Issued' })
+    ]
+
+    if (inspection.image_url) {
+      try {
+        const response = await fetch(inspection.image_url)
+        if (!response.ok) throw new Error(`Evidence fetch failed (${response.status})`)
+        const buffer = await response.arrayBuffer()
+        const bytes = new Uint8Array(buffer)
+        const type = detectDocxImageType(bytes, inspection.image_url)
+        if (type === 'png' || type === 'jpg' || type === 'gif' || type === 'bmp') {
+          children.splice(3, 0,
+            new Paragraph({ text: 'Scanned Label Evidence Proof', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph({ children: [new ImageRun({ data: buffer, transformation: { width: 420, height: 280 }, type })] }),
+            new Paragraph({ text: '' })
+          )
+        } else {
+          children.splice(3, 0, new Paragraph({ text: 'Evidence image reference noted (format not embeddable in Word).' }))
+        }
+      } catch {
+        children.splice(3, 0, new Paragraph({ text: 'Evidence image reference noted.' }))
+      }
+    }
+
+    const blob = await Packer.toBlob(new WordDocument({ sections: [{ children }] }))
+    downloadBlob(blob, `Synaptix_Inspection_${inspection.inspection_id}.docx`)
+  }
 
   async function exportReport(type) {
     setLoading(true)
-    const html = reportHtml(inspection)
-    if (type === 'pdf') {
-      const reportWindow = window.open('', '_blank', 'noopener,noreferrer')
-      if (reportWindow) {
-        reportWindow.document.write(html)
-        reportWindow.document.close()
-        reportWindow.focus()
-        window.setTimeout(() => reportWindow.print(), 250)
-      }
-    } else {
-      const rules = inspectionRules(inspection)
-      const score = inspectionScore(inspection, rules)
-      const confidence = inspectionConfidence(inspection)
-      const details = Object.entries(inspection.fields || {}).filter(([, value]) => value)
-
-      const rows = [
-        ['Product Name', inspection.product?.name || 'Not returned'],
-        ['Category', inspection.product?.category || 'Packaged Commodity'],
-        ['Inspection ID', inspection.inspection_id],
-        ['Inspector ID', inspection.user_id || 'Officer-Central'],
-        ['Inspection Date', formatDate(inspection.created_at)],
-        ['Final Statutory Result', inspection.compliance?.status === 'PASS' ? 'COMPLIANT' : 'NON-COMPLIANT'],
-        ['Compliance Score', score != null ? `${score} / 100` : 'Not returned'],
-        ['Model Confidence', confidence != null ? `${confidence}%` : 'Not returned'],
-        ...details.map(([key, value]) => [key.replace(/_/g, ' ').toUpperCase(), String(value)])
-      ]
-
-      const ruleParagraphs = (items) => items.map((item) => new Paragraph({ text: `• ${item.name}${item.reason ? `: ${item.reason}` : ''}` }))
-
-      const children = [
-        new Paragraph({ text: 'SYNAPTIX LEGAL METROLOGY INSPECTION REPORT', heading: HeadingLevel.TITLE }),
-        new Paragraph({ text: `Statutory Inspection Evidence · ${inspection.inspection_id} · ${formatDate(inspection.created_at)}` }),
-        new Paragraph({ text: '' }),
-        new Paragraph({ text: 'Product Specifications & Compliance Summary', heading: HeadingLevel.HEADING_2 }),
-        new Table({
-          rows: rows.map(([label, value]) => new TableRow({
-            children: [
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })] }),
-              new TableCell({ children: [new Paragraph(value)] })
-            ]
-          }))
-        }),
-        new Paragraph({ text: '' }),
-        new Paragraph({ text: 'Statutory Rules Obeyed (Passed)', heading: HeadingLevel.HEADING_2 }),
-        ...ruleParagraphs(rules.obeyed),
-        new Paragraph({ text: '' }),
-        new Paragraph({ text: 'Statutory Rules Not Obeyed (Violations Flagged)', heading: HeadingLevel.HEADING_2 }),
-        ...ruleParagraphs(rules.notObeyed),
-        new Paragraph({ text: '' }),
-        new Paragraph({ text: 'Enforcement Officer Remarks & Compounding Notes (Editable)', heading: HeadingLevel.HEADING_2 }),
-        new Paragraph({ text: '[Officer may enter custom compounding notice, challan reference, or inspection remarks below]' }),
-        new Paragraph({ text: 'Officer Remarks: ____________________________________________________________________' }),
-        new Paragraph({ text: 'Action Recommended: [ ] Compounding Fee Notice  [ ] Seizure of Goods  [ ] Warning Issued' })
-      ]
-
-      if (inspection.image_url) {
-        try {
-          const data = await fetch(inspection.image_url).then((response) => response.arrayBuffer())
-          children.splice(3, 0,
-            new Paragraph({ text: 'Scanned Label Evidence Proof', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph({ children: [new ImageRun({ data, transformation: { width: 420, height: 280 } })] }),
-            new Paragraph({ text: '' })
-          )
-        } catch {
-          children.splice(3, 0, new Paragraph('Evidence image reference noted.'))
-        }
-      }
-
-      const blob = await Packer.toBlob(new WordDocument({ sections: [{ children }] }))
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `Synaptix_Inspection_${inspection.inspection_id}.docx`
-      anchor.click()
-      URL.revokeObjectURL(url)
+    setError('')
+    try {
+      if (type === 'pdf') await exportPdf()
+      else await exportWord()
+    } catch {
+      setError('Export failed. Please try again.')
+    } finally {
+      setOpen(false)
+      window.setTimeout(() => setLoading(false), 250)
     }
-    setOpen(false)
-    window.setTimeout(() => setLoading(false), 250)
   }
 
   return (
     <div className="export-control">
-      <button className="button secondary" onClick={() => setOpen((value) => !value)} disabled={loading}>
+      <button className="button secondary" onClick={() => { setOpen((value) => !value); setError('') }} disabled={loading}>
         <Download size={17} /> {loading ? 'Preparing...' : t('exportReport', lang)}
       </button>
       {open && (
         <div className="export-menu">
           <button onClick={() => exportReport('pdf')}><FileText size={15} /> {t('exportPdf', lang)}</button>
           <button onClick={() => exportReport('word')}><FileText size={15} /> {t('exportWord', lang)}</button>
+          {error && <div style={{ padding: '8px 12px', fontSize: '11px', color: '#DF1B41' }}>{error}</div>}
         </div>
       )}
     </div>

@@ -63,8 +63,10 @@ export const api = {
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = `Compliance_Certificate_${id}.pdf`
+    document.body.appendChild(anchor)
     anchor.click()
-    URL.revokeObjectURL(url)
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 4000)
   }
 }
 
