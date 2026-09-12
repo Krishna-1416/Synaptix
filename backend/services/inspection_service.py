@@ -463,7 +463,6 @@ class InspectionService:
                 item for item in filtered 
                 if s in str(item.get("product", {}).get("name", "")).lower() or s in item.get("inspection_id", "").lower()
             ]
-
         total = len(filtered)
         start = (page - 1) * limit
         paginated = filtered[start:start + limit]
@@ -501,7 +500,10 @@ class InspectionService:
         return existed_in_memory
 
     @staticmethod
-    async def get_dashboard_metrics() -> Dict[str, Any]:
+    async def get_dashboard_metrics(
+        requester_id: Optional[str] = None,
+        is_admin: bool = False,
+    ) -> Dict[str, Any]:
         """Aggregate stats for inspector analytics dashboard."""
         list_res = await InspectionService.list_inspections(
             page=1,
