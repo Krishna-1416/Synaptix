@@ -1798,6 +1798,53 @@ function ReportExport({ inspection, loading, setLoading, lang }) {
   )
 }
 
+function calculateSuggestedUsp(mrpStr, netQtyStr) {
+  if (!mrpStr || !netQtyStr) return []
+  const cleanMrp = String(mrpStr).replace(/,/g, '').split('(')[0]
+  const mrpMatch = cleanMrp.match(/(\d+(?:\.\d+)?)/)
+  const qtyMatch = String(netQtyStr).match(/(\d+(?:\.\d+)?)\s*(kg|g|gm|grams?|ml|millilitres?|l|ltr|litres?|liter|pcs|units?|nos)/i)
+  if (!mrpMatch || !qtyMatch) return []
+
+  const price = parseFloat(mrpMatch[1])
+  const qty = parseFloat(qtyMatch[1])
+  const unit = qtyMatch[2].toLowerCase()
+  if (isNaN(price) || isNaN(qty) || price <= 0 || qty <= 0) return []
+
+  if (['ml', 'millilitre', 'millilitres'].includes(unit)) {
+    if (qty < 1000) {
+      const p100 = ((price / qty) * 100).toFixed(2)
+      const pMl = (price / qty).toFixed(2)
+      return [`₹ ${p100} / 100 ml`, `₹ ${pMl} / ml`]
+    } else {
+      const pL = (price / (qty / 1000)).toFixed(2)
+      const p100 = ((price / qty) * 100).toFixed(2)
+      return [`₹ ${pL} / L`, `₹ ${p100} / 100 ml`]
+    }
+  }
+  if (['l', 'ltr', 'litre', 'litres', 'liter'].includes(unit)) {
+    const pL = (price / qty).toFixed(2)
+    const p100 = (price / qty / 10).toFixed(2)
+    return [`₹ ${pL} / L`, `₹ ${p100} / 100 ml`]
+  }
+  if (['g', 'gm', 'gram', 'grams'].includes(unit)) {
+    if (qty < 1000) {
+      const p100 = ((price / qty) * 100).toFixed(2)
+      const pG = (price / qty).toFixed(2)
+      return [`₹ ${p100} / 100 g`, `₹ ${pG} / g`]
+    } else {
+      const pKg = (price / (qty / 1000)).toFixed(2)
+      return [`₹ ${pKg} / kg`]
+    }
+  }
+  if (['kg', 'kilogram'].includes(unit)) {
+    return [`₹ ${(price / qty).toFixed(2)} / kg`]
+  }
+  if (['units', 'unit', 'pcs', 'nos'].includes(unit)) {
+    return [`₹ ${(price / qty).toFixed(2)} / unit`]
+  }
+  return []
+}
+
 function Detail({ inspection, onBack, onReport, lang }) {
   const [loading, setLoading] = useState(false)
   const [fullInspection, setFullInspection] = useState(inspection)
@@ -2024,18 +2071,39 @@ function Detail({ inspection, onBack, onReport, lang }) {
           <div className="field-list">
             {FIELD_DEFINITIONS.map(({ key, label }) => {
               const value = fields[key]
+              const isUspField = key === 'unit_sale_price'
+              const suggestions = isUspField && isEditing ? calculateSuggestedUsp(editFields.mrp, editFields.net_quantity) : []
+
               return (
                 <div className={`field-row ${isEditing ? 'editing' : ''}`} key={key}>
                   <span>{label}</span>
                   {isEditing ? (
-                    <input
-                      className="edit-field-input"
-                      value={editFields[key] ?? ''}
-                      placeholder={`Enter ${label.toLowerCase()}...`}
-                      onChange={(e) => setEditFields((prev) => ({ ...prev, [key]: e.target.value }))}
-                    />
+                    <div className="edit-field-wrapper">
+                      <input
+                        className="edit-field-input"
+                        value={editFields[key] ?? ''}
+                        placeholder={isUspField ? 'e.g. ₹ 16.00 / 100 ml or ₹ 80/L' : `Enter ${label.toLowerCase()}...`}
+                        onChange={(e) => setEditFields((prev) => ({ ...prev, [key]: e.target.value }))}
+                      />
+                      {suggestions.length > 0 && (
+                        <div className="usp-suggestion-strip">
+                          <span className="usp-suggest-label">Rule 6(11) Suggest:</span>
+                          {suggestions.map((sug) => (
+                            <button
+                              key={sug}
+                              type="button"
+                              className="usp-suggest-chip"
+                              onClick={() => setEditFields((prev) => ({ ...prev, unit_sale_price: sug }))}
+                              title="Click to apply statutory USP"
+                            >
+                              {sug}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ) : (
-                    <strong className={!value ? 'missing' : ''}>
+                    <strong className={!value ? 'missing' : String(value).includes('(Calculated)') ? 'auto-calc' : ''}>
                       {value || 'Not detected'}
                     </strong>
                   )}

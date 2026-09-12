@@ -155,7 +155,7 @@ class LegalFieldExtractor:
         (?P<price>\d+(?:\.\d{1,2})?)
         \s*(?:/-)?\s*
         (?:/|per)\s*
-        (?P<unit>kg|g|gm|grams?|ml|l|ltr|litres?|pcs|pieces?|units?|nos|count|item|n)\b
+        (?P<unit>(?:100\s*(?:ml|m[lI1\|]|millilitres?|g|gm|grams?))|kg|g|gm|grams?|ml|m[lI1\|]|millilitres?|l|ltr|litres?|liter|liters?|pcs|pieces?|units?|nos|count|item|n)\b
         """,
         re.IGNORECASE | re.VERBOSE,
     )
@@ -219,15 +219,19 @@ class LegalFieldExtractor:
 
     @staticmethod
     def _standardize_unit(unit_str: str) -> str:
-        u = unit_str.lower()
+        u = re.sub(r"\s+", " ", unit_str.lower().strip())
+        if u in ("100 ml", "100ml", "100 millilitre", "100 millilitres"):
+            return "100 ml"
+        if u in ("100 g", "100g", "100 gm", "100 grams", "100 gram"):
+            return "100 g"
         if u in ("g", "gm", "gram", "grams"):
             return "g"
         if u in ("kg", "kilogram", "kilograms"):
             return "kg"
         if u in ("ml", "millilitre", "millilitres", "mi", "m1", "m|"):
             return "ml"
-        if u in ("l", "ltr", "litre", "litres"):
-            return "l"
+        if u in ("l", "ltr", "litre", "litres", "liter", "liters"):
+            return "L"
         if u in ("n", "unit", "units", "pc", "pcs", "piece", "pieces", "nos"):
             return "units"
         return unit_str
@@ -391,7 +395,7 @@ class LegalFieldExtractor:
 
     @classmethod
     def extract_unit_sale_price(cls, lines: list[TextLine]) -> Optional[str]:
-        """Extract Unit Sale Price (USP) under Rule 6(1)(m)."""
+        """Extract Unit Sale Price (USP) under Rule 6(1)(m) / Rule 6(11)."""
         for line in lines:
             text = line.text
             match = cls.RE_USP.search(text)
@@ -400,6 +404,125 @@ class LegalFieldExtractor:
                 unit = cls._standardize_unit(match.group("unit").strip())
                 currency = "₹" if "₹" in text else "Rs."
                 return f"{currency} {price} / {unit}"
+        return None
+
+    @classmethod
+    def calculate_suggested_usp(
+        cls,
+        mrp_str: Optional[str],
+        net_quantity_str: Optional[str],
+        category: Optional[str] = None
+    ) -> Optional[dict]:
+        """
+        Calculate statutory suggested Unit Sale Price (USP) under Rule 6(11) (as amended 2021/2022).
+        For beverages and liquids:
+          - Packages <= 1 L (or 1000 ml): expressed per 100 ml (or per ml)
+          - Packages > 1 L: expressed per Litre (L)
+        For solid commodities:
+          - Packages <= 1 kg (or 1000 g): expressed per 100 g (or per g)
+          - Packages > 1 kg: expressed per kilogram (kg)
+        """
+        if not mrp_str or not net_quantity_str:
+            return None
+
+        # 1. Parse numeric MRP (robust against 'Rs.' period)
+        mrp_clean = mrp_str.replace(",", "").split("(")[0]
+        mrp_match = re.search(r"(\d+(?:\.\d{1,2})?)", mrp_clean)
+        if not mrp_match:
+            return None
+        try:
+            mrp_val = float(mrp_match.group(1))
+        except ValueError:
+            return None
+
+        if mrp_val <= 0:
+            return None
+
+        # 2. Parse quantity and unit
+        qty_match = re.search(
+            r"(\d+(?:\.\d+)?)\s*(kg|g|gm|grams?|ml|millilitres?|l|ltr|litres?|liter|liters?|pcs|pieces?|units?|nos|count|item|n)\b",
+            net_quantity_str,
+            re.IGNORECASE
+        )
+        if not qty_match:
+            return None
+
+        try:
+            qty_val = float(qty_match.group(1))
+        except ValueError:
+            return None
+
+        if qty_val <= 0:
+            return None
+
+        raw_unit = qty_match.group(2).lower()
+        std_unit = cls._standardize_unit(raw_unit)
+
+        # 3. Apply Rule 6(11) statutory pricing logic
+        if std_unit == "ml":
+            if qty_val < 1000:
+                per_100ml = (mrp_val / qty_val) * 100.0
+                per_ml = mrp_val / qty_val
+                return {
+                    "primary": f"₹ {per_100ml:.2f} / 100 ml",
+                    "secondary": f"₹ {per_ml:.2f} / ml",
+                    "per_100ml": round(per_100ml, 2),
+                    "per_ml": round(per_ml, 4),
+                    "unit": "100 ml"
+                }
+            else:
+                per_l = mrp_val / (qty_val / 1000.0)
+                per_100ml = (mrp_val / qty_val) * 100.0
+                return {
+                    "primary": f"₹ {per_l:.2f} / L",
+                    "secondary": f"₹ {per_100ml:.2f} / 100 ml",
+                    "per_l": round(per_l, 2),
+                    "unit": "L"
+                }
+        elif std_unit in ("l", "ltr", "litre", "L"):
+            per_l = mrp_val / qty_val
+            return {
+                "primary": f"₹ {per_l:.2f} / L",
+                "secondary": f"₹ {(per_l / 10.0):.2f} / 100 ml",
+                "per_l": round(per_l, 2),
+                "unit": "L"
+            }
+        elif std_unit in ("g", "gm"):
+            if qty_val < 1000:
+                per_100g = (mrp_val / qty_val) * 100.0
+                per_g = mrp_val / qty_val
+                return {
+                    "primary": f"₹ {per_100g:.2f} / 100 g",
+                    "secondary": f"₹ {per_g:.2f} / g",
+                    "per_100g": round(per_100g, 2),
+                    "per_g": round(per_g, 4),
+                    "unit": "100 g"
+                }
+            else:
+                per_kg = mrp_val / (qty_val / 1000.0)
+                return {
+                    "primary": f"₹ {per_kg:.2f} / kg",
+                    "secondary": f"₹ {round((mrp_val / qty_val) * 100, 2):.2f} / 100 g",
+                    "per_kg": round(per_kg, 2),
+                    "unit": "kg"
+                }
+        elif std_unit == "kg":
+            per_kg = mrp_val / qty_val
+            return {
+                "primary": f"₹ {per_kg:.2f} / kg",
+                "secondary": f"₹ {(per_kg / 10.0):.2f} / 100 g",
+                "per_kg": round(per_kg, 2),
+                "unit": "kg"
+            }
+        elif std_unit in ("units", "pcs", "nos"):
+            per_unit = mrp_val / qty_val
+            return {
+                "primary": f"₹ {per_unit:.2f} / unit",
+                "secondary": f"₹ {per_unit:.2f} / piece",
+                "per_unit": round(per_unit, 2),
+                "unit": "unit"
+            }
+
         return None
 
     @classmethod

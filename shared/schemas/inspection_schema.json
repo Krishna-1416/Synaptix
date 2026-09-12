@@ -48,7 +48,7 @@
         "net_quantity": { "type": ["string", "null"] },
         "manufacture_date": { "type": ["string", "null"] },
         "mrp": { "type": ["string", "null"] },
-        "unit_sale_price": { "type": ["string", "null"], "description": "Unit Sale Price e.g. Rs/g, Rs/ml (Rule 6(1)(m))" },
+        "unit_sale_price": { "type": ["string", "null"], "description": "Unit Sale Price e.g. Rs/100ml, Rs/L, Rs/g, Rs/ml (Rule 6(1)(m) / Rule 6(11))" },
         "consumer_care": { "type": ["string", "null"] }
       }
     },

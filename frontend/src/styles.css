@@ -3409,3 +3409,80 @@ textarea:focus { outline: 2px solid var(--primary-border); outline-offset: 1px; 
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   USP Rule 6(11) Quick-Fill Suggestion Chips & Auto-Calculation Badges
+   ========================================================================== */
+.field-row.editing {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.edit-field-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-field-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
+  color: var(--ink);
+  transition: all 0.2s ease;
+}
+
+.edit-field-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--primary-subtle);
+}
+
+.usp-suggestion-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.usp-suggest-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.usp-suggest-chip {
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9999px;
+  border: 1px solid var(--accent-primary);
+  background: var(--primary-subtle);
+  color: var(--accent-primary);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+}
+
+.usp-suggest-chip:hover {
+  background: var(--accent-primary);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+.field-row strong.auto-calc {
+  color: #F59E0B;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+

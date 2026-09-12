@@ -83,6 +83,17 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
         ]
         raw_ocr = OCRRaw(texts=ocr_items)
 
+        # If USP is missing from physical packaging, auto-calculate statutory recommendation
+        usp_val = ocr_result.fields.unit_sale_price
+        if not usp_val and ocr_result.fields.mrp and ocr_result.fields.net_quantity:
+            from ocr.field_extractor import LegalFieldExtractor
+            suggested = LegalFieldExtractor.calculate_suggested_usp(
+                ocr_result.fields.mrp,
+                ocr_result.fields.net_quantity
+            )
+            if suggested and suggested.get("primary"):
+                usp_val = f"{suggested['primary']} (Calculated)"
+
         # Map LegalMetrologyFields to MandatoryFields (all Rule 6 declarations)
         fields = MandatoryFields(
             manufacturer=ocr_result.fields.manufacturer,
@@ -91,7 +102,7 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
             net_quantity=ocr_result.fields.net_quantity,
             manufacture_date=ocr_result.fields.manufacture_date,
             mrp=ocr_result.fields.mrp,
-            unit_sale_price=ocr_result.fields.unit_sale_price,
+            unit_sale_price=usp_val,
             consumer_care=ocr_result.fields.consumer_care,
         )
         return raw_ocr, fields
