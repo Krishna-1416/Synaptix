@@ -423,6 +423,10 @@ class InspectionService:
         search: Optional[str] = None,
         requester_id: Optional[str] = None,
         is_admin: bool = False,
+<<<<<<< HEAD
+=======
+        inspector_id: Optional[str] = None,
+>>>>>>> 759c06701767d7ea868c6408f6599d93bc24d382
     ) -> Dict[str, Any]:
         """List inspections with optional filtering and pagination."""
         admin_client = get_supabase_admin_client()
