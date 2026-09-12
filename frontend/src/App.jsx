@@ -73,7 +73,43 @@ function displayRole(user) {
 }
 
 function initials(user) {
-  return (user?.full_name || 'User').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+  return displayName(user).split(' ').filter(Boolean).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'U'
+}
+
+const GENERIC_PLACEHOLDER_NAMES = new Set([
+  'inspector', 'inspector officer', 'enforcement officer', 'guest inspector',
+  'lead inspector', 'offline officer', 'synaptix user', 'synaptix admin', 'user', 'officer', 'admin'
+])
+
+function cleanName(value) {
+  const trimmed = String(value || '').trim().replace(/\s+/g, ' ')
+  if (!trimmed) return ''
+  if (GENERIC_PLACEHOLDER_NAMES.has(trimmed.toLowerCase())) return ''
+  return trimmed
+}
+
+function titleCase(value) {
+  return value.split(' ').map((word) => word ? word[0].toUpperCase() + word.slice(1) : '').join(' ').trim()
+}
+
+function displayName(user) {
+  const real = cleanName(user?.full_name) || cleanName(user?.name)
+  if (real) return real
+  const prefix = String(user?.email || '').split('@')[0].replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const cleanedPrefix = cleanName(prefix)
+  if (cleanedPrefix) return titleCase(cleanedPrefix)
+  return isAdmin(user) ? 'Admin' : 'User'
+}
+
+function firstNameOf(user) {
+  return displayName(user).split(' ').filter(Boolean)[0] || (isAdmin(user) ? 'Admin' : 'User')
+}
+
+function greetingKey() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'goodMorning'
+  if (hour < 17) return 'goodAfternoon'
+  return 'goodEvening'
 }
 
 function consumeOAuthAccessToken() {
@@ -394,26 +430,42 @@ function Welcome({ onNext, theme, onToggleTheme, lang, setLang }) {
 function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) {
   const [mode, setMode] = useState('signup')
   const [role, setRole] = useState('user')
-  const [form, setForm] = useState({ email: '', password: '' })
+  const [form, setForm] = useState({ full_name: '', email: '', password: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
   function update(field, value) { setForm((current) => ({ ...current, [field]: value })) }
 
+  function emailPrefix() {
+    return String(form.email || '').split('@')[0].replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  }
+
+  function resolveSignupName() {
+    const typed = String(form.full_name || '').trim().replace(/\s+/g, ' ')
+    if (typed) return typed
+    if (emailPrefix()) return titleCase(emailPrefix())
+    return role === 'admin' ? 'Admin' : 'User'
+  }
+
   async function submit(event) {
     event.preventDefault()
     setBusy(true)
     setError('')
     try {
-      const result = mode === 'login' ? await api.login(form) : await api.signup({ ...form, role: role === 'user' ? 'inspector' : 'admin' })
+      const result = mode === 'login'
+        ? await api.login(form)
+        : await api.signup({ email: form.email, password: form.password, fullName: String(form.full_name || '').trim() || resolveSignupName(), role: role === 'user' ? 'inspector' : 'admin' })
       if (result.access_token) window.localStorage.setItem('synaptix_access_token', result.access_token)
       const authenticatedUser = result.user || {}
       const authenticatedRole = ['admin', 'administrator'].includes(String(authenticatedUser.role || '').toLowerCase()) ? 'admin' : 'user'
-      onAuthenticated({ ...authenticatedUser, full_name: authenticatedRole === 'admin' ? 'Synaptix Admin' : authenticatedUser.full_name || form.email.split('@')[0] || 'Synaptix User', role: authenticatedRole })
+      const backendName = cleanName(authenticatedUser.full_name) || cleanName(authenticatedUser.name)
+      const fallbackName = mode === 'signup' ? resolveSignupName() : (emailPrefix() ? titleCase(emailPrefix()) : (authenticatedRole === 'admin' ? 'Admin' : 'User'))
+      onAuthenticated({ ...authenticatedUser, full_name: backendName || fallbackName, email: authenticatedUser.email || form.email, role: authenticatedRole })
     } catch (caught) {
       if (/502|Failed to fetch|NetworkError/i.test(caught.message || '')) {
-        onAuthenticated({ full_name: form.email.split('@')[0] || (role === 'user' ? 'Synaptix User' : 'Synaptix Admin'), role })
+        const fallbackRole = role
+        onAuthenticated({ full_name: mode === 'signup' ? resolveSignupName() : (emailPrefix() ? titleCase(emailPrefix()) : (fallbackRole === 'admin' ? 'Admin' : 'User')), email: form.email, role: fallbackRole })
       } else {
         setError(caught.message || 'Unable to authenticate. Please try again.')
       }
@@ -474,6 +526,13 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
             </div>
           </div>
           <form onSubmit={submit}>
+            {mode === 'signup' && (
+              <label className="auth-field" aria-label="Full Name">
+                <div>
+                  <input required minLength={2} type="text" value={form.full_name} onChange={(event) => update('full_name', event.target.value)} placeholder="Full Name" autoComplete="name" />
+                </div>
+              </label>
+            )}
             <label className="auth-field" aria-label="Email Address">
               <div>
                 <input required type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Email Address" autoComplete="email" />
@@ -524,13 +583,7 @@ function App() {
     try {
       const saved = window.localStorage.getItem('synaptix_user')
       if (!saved) return null
-      const parsed = JSON.parse(saved)
-      if (parsed?.full_name?.toLowerCase().includes('riya') || parsed?.name?.toLowerCase().includes('riya')) {
-        const cleaned = { ...parsed, full_name: 'Inspector', name: 'Inspector' }
-        window.localStorage.setItem('synaptix_user', JSON.stringify(cleaned))
-        return cleaned
-      }
-      return parsed
+      return JSON.parse(saved)
     } catch {
       return null
     }
@@ -633,7 +686,9 @@ function App() {
   }
 
   function handleAuthenticated(nextUser) {
-    const normalizedUser = { ...nextUser, role: isAdmin(nextUser) ? 'admin' : 'user' }
+    const role = isAdmin(nextUser) ? 'admin' : 'user'
+    const resolvedName = displayName({ ...nextUser, role })
+    const normalizedUser = { ...nextUser, full_name: resolvedName, role }
     setUser(normalizedUser)
     setAuthenticated(true)
     window.localStorage.setItem('synaptix_authenticated', 'true')
@@ -733,9 +788,9 @@ function App() {
           </div>
         <div className="sidebar-footer">
           <div className="account-menu" onClick={(event) => event.stopPropagation()}>
-            <button className="user-chip" title={sidebarCollapsed ? user?.full_name || 'Inspector' : undefined} onClick={() => setAccountOpen((open) => !open)} aria-expanded={accountOpen}>
+            <button className="user-chip" title={sidebarCollapsed ? displayName(user) : undefined} onClick={() => setAccountOpen((open) => !open)} aria-expanded={accountOpen}>
               <div className="avatar">{initials(user)}</div>
-              <div><strong>{user?.full_name || 'Inspector'}</strong><span>{displayRole(user)}</span></div>
+              <div><strong>{displayName(user)}</strong><span>{displayRole(user)}</span></div>
               <ChevronRight size={16} />
             </button>
             {accountOpen && (
@@ -810,7 +865,7 @@ function ProfileModal({ user, onClose, lang }) {
         <button className="modal-close" onClick={onClose} aria-label="Close profile"><X size={17} /></button>
         <div className="profile-avatar avatar">{initials(user)}</div>
         <div className="eyebrow">Authenticated profile</div>
-        <h2 id="profile-title">{user.full_name || 'User'}</h2>
+        <h2 id="profile-title">{displayName(user)}</h2>
         <div className="profile-details">
           <div><span>Email</span><strong>{user.email || 'Not available'}</strong></div>
           <div><span>Role</span><strong>{displayRole(user)}</strong></div>
@@ -838,14 +893,13 @@ function ConfirmModal({ onCancel, onConfirm, lang }) {
 }
 
 function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang }) {
-  const rawName = (user?.full_name || user?.name || '').trim().split(' ')[0]
-  const firstName = (!rawName || rawName.toLowerCase() === 'riya') ? (isAdmin(user) ? 'Admin' : 'Inspector') : rawName
+  const firstName = firstNameOf(user)
   const todayStr = new Intl.DateTimeFormat(lang === 'hi' ? 'hi-IN' : lang === 'mr' ? 'mr-IN' : 'en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
   return (
     <div className="page">
       <PageIntro
         eyebrow={<><span className="live-pulse" /> {todayStr}</>}
-        title={<>{t('goodMorning', lang)}, <span className="auth-highlight">{firstName}.</span></>}
+        title={<>{t(greetingKey(), lang)}, <span className="auth-highlight">{firstName}.</span></>}
         description={t('deskGlance', lang)}
         action={<button className="button primary pill-cta" onClick={() => onNavigate('scan')}><ImagePlus size={16} /> <span>{t('startInspection', lang)}</span> <ArrowUpRight size={15} /></button>}
       />
