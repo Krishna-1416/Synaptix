@@ -823,8 +823,6 @@ function App() {
               <Menu size={20} />
             </button>
             <div className="breadcrumb">
-              <span>Synaptix</span>
-              <ChevronRight size={14} />
               <strong>
                 {activeView === 'detail' ? t('inspectionResult', lang) : activeView === 'documentation' ? t('technicalDoc', lang) : activeView === 'analytics' ? t('analytics', lang) : t(NAV_DEFINITIONS.find((item) => item.id === activeView)?.key || 'overview', lang)}
               </strong>
