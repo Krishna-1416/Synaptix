@@ -4042,16 +4042,12 @@ html.theme-transitioning *::after {
 .workspace-status span { color: var(--muted); font-size: 10px; margin-top: 4px; }
 .status-rule { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding: 12px 0 0; margin-top: 10px; color: var(--muted); font-size: 10px; }
 .status-rule strong { color: var(--accent-primary); }
-.pipeline-step { position: relative; display: grid; grid-template-columns: 25px 22px 1fr; gap: 8px; align-items: start; padding: 14px 0; border-bottom: 1px solid var(--line); }
-.pipeline-step:last-child { border-bottom: 0; }
-.pipeline-number { color: var(--muted); font: 10px 'DM Mono', monospace; padding-top: 2px; }
+/* NOTE: stale 3-column pipeline list styles removed — canonical card styles live with .pipeline-steps above. */
 .pipeline-status { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--muted); border: 1px solid var(--line); }
 .pipeline-step.completed .pipeline-status { color: var(--status-success); border-color: var(--status-success); background: var(--pass-soft); }
 .pipeline-step.processing .pipeline-status { color: var(--status-warning); border-color: var(--status-warning); background: var(--yellow-soft); }
 .pipeline-step.failed .pipeline-status { color: var(--status-error); border-color: var(--status-error); background: var(--fail-soft); }
-.pipeline-step strong, .pipeline-step small { display: block; }
-.pipeline-step strong { font-size: 11px; }
-.pipeline-step small { color: var(--muted); font-size: 10px; margin-top: 4px; line-height: 1.45; }
+/* NOTE: stale pipeline type overrides removed — canonical sizes live with .pipeline-steps above. */
 .modal-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 20px; background: rgba(10, 16, 29, 0.65); backdrop-filter: blur(4px); }
 .modal-card { position: relative; width: min(100%, 390px); padding: 28px; background: var(--bg-surface); border: 1px solid var(--line); box-shadow: var(--shadow-raised); color: var(--ink); border-radius: 8px; }
 .modal-close { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; border: 0; background: transparent; color: var(--muted); padding: 6px; cursor: pointer; }
@@ -5819,6 +5815,94 @@ textarea:focus { outline: 2px solid var(--primary-border); outline-offset: 1px; 
   .scanner-laser-line,
   .scanner-laser-cone {
     animation-duration: 5s;
+  }
+}
+
+/* ==========================================================================
+   NEW INSPECTION POLISH — DROPZONE RHYTHM + PIPELINE READABILITY
+   ========================================================================== */
+
+/* Dropzone: title / "or [Browse files]" / spec — one job per line */
+.upload-title {
+  text-wrap: balance;
+  line-height: 1.35;
+}
+.upload-subtitle {
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 10px;
+  column-gap: 10px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.browse-pill-btn {
+  padding: 7px 16px;
+  font-size: 12.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.upload-zone:hover .browse-pill-btn {
+  background: rgba(99, 91, 255, 0.32);
+  border-color: rgba(129, 140, 248, 0.7);
+  box-shadow: 0 0 18px rgba(99, 91, 255, 0.35);
+  color: #C7D2FE;
+}
+.upload-spec-badge {
+  line-height: 1.7;
+  max-width: 46ch;
+  text-wrap: balance;
+}
+
+/* Pipeline steps: give the description room to breathe */
+.pipeline-steps {
+  gap: 10px;
+}
+.pipeline-step {
+  gap: 12px;
+  padding: 13px 15px;
+  align-items: flex-start;
+}
+.pipeline-number {
+  flex-shrink: 0;
+  min-width: 22px;
+}
+.pipeline-content {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+.pipeline-step-header {
+  gap: 10px;
+}
+.pipeline-step-header strong {
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+}
+.pipeline-content small {
+  font-size: 12.5px;
+  line-height: 1.65;
+  text-wrap: pretty;
+  max-width: 62ch;
+}
+
+@media (max-width: 640px) {
+  .upload-zone {
+    min-height: 260px;
+    padding: 30px 20px;
+  }
+  .upload-icon-halo {
+    width: 56px;
+    height: 56px;
+    margin-bottom: 14px;
+  }
+  .upload-title {
+    font-size: 16px;
+  }
+  .pipeline-panel {
+    padding: 18px;
+  }
+  .pipeline-step {
+    padding: 12px 13px;
   }
 }
 
