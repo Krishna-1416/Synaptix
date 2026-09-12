@@ -5541,3 +5541,284 @@ textarea:focus { outline: 2px solid var(--primary-border); outline-offset: 1px; 
   gap: 4px;
 }
 
+/* ==========================================================================
+   MOBILE OPTIMIZATION — LANDING (WELCOME) & AUTH
+   Mobile-first refinements: safe-area, touch targets, stacking order,
+   fluid type, GPU-friendly motion. Appended last so it wins the cascade.
+   ========================================================================== */
+
+/* Base: dynamic viewport + notch-safe + no horizontal scroll */
+.entry-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: clip;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.auth-layout,
+.welcome-content {
+  min-width: 0;
+}
+
+/* ---- Landing: tablet (<=900px) refinements over the base rule ---- */
+@media (max-width: 900px) {
+  .welcome-content {
+    gap: 32px;
+    padding: 24px 20px 48px;
+  }
+  .welcome-art {
+    height: auto;
+    min-height: 0;
+  }
+  .scanner-stage {
+    min-height: 400px;
+    padding: 12px 0 20px;
+  }
+  .floating-badge {
+    z-index: 4;
+  }
+}
+
+/* ---- Shared entry header: compact on phones ---- */
+@media (max-width: 640px) {
+  .entry-header {
+    height: 60px;
+    padding: 0 16px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .entry-brand {
+    font-size: 16px;
+    gap: 8px;
+    min-width: 0;
+  }
+  .entry-brand-mark {
+    width: 32px;
+    height: 32px;
+  }
+  .brand-logo-img {
+    width: 100%;
+    height: 100%;
+  }
+  .entry-header-actions {
+    gap: 8px;
+  }
+  .lang-switcher button {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .theme-toggle.compact {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+  }
+  .ambient-glow {
+    opacity: 0.35;
+  }
+  .ambient-glow-one,
+  .ambient-glow-two {
+    width: 320px;
+    height: 320px;
+  }
+}
+
+/* Icon-only back button on very small screens (text node collapses) */
+@media (max-width: 480px) {
+  .entry-back {
+    font-size: 0;
+    gap: 0;
+    padding: 9px 10px;
+  }
+  .entry-back svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+/* ---- Landing: phones ---- */
+@media (max-width: 640px) {
+  .welcome-content {
+    gap: 28px;
+    padding: 20px 16px 40px;
+  }
+  .welcome-copy h1 {
+    font-size: clamp(32px, 9vw, 44px);
+    letter-spacing: -1.6px;
+    line-height: 1.08;
+    margin-bottom: 20px;
+    text-wrap: balance;
+  }
+  .welcome-copy em {
+    letter-spacing: -1px;
+  }
+  .welcome-lead {
+    font-size: 14px;
+    line-height: 1.65;
+    margin-bottom: 22px;
+  }
+  .welcome-cta-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .entry-cta {
+    width: 100%;
+    min-width: 0;
+    min-height: 54px;
+    font-size: 15px;
+  }
+  .welcome-trust-strip {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 18px;
+  }
+  .trust-divider {
+    display: none;
+  }
+  .trust-item {
+    font-size: 11px;
+    min-width: 0;
+  }
+  .scanner-stage {
+    min-height: 360px;
+  }
+  .scanner-package-card {
+    width: min(280px, 78vw);
+    padding: 18px 16px;
+  }
+  .floating-badge {
+    font-size: 11px;
+  }
+  .floating-badge.badge-top-right {
+    top: 0;
+    right: 0;
+  }
+  .floating-badge.badge-bottom-left {
+    bottom: 0;
+    left: 0;
+  }
+  .entry-footer {
+    flex-wrap: wrap;
+    justify-content: center;
+    text-align: center;
+    gap: 6px 16px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Very small phones: keep scanner badges inside the viewport */
+@media (max-width: 380px) {
+  .scanner-package-card {
+    width: min(250px, 80vw);
+  }
+  .floating-badge .badge-copy strong {
+    font-size: 11px;
+  }
+}
+
+/* ---- Auth: tablet — form first, feature card becomes compact banner ---- */
+@media (max-width: 900px) {
+  .auth-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .auth-card {
+    order: -1;
+    max-width: 440px;
+  }
+  .auth-feature-card {
+    min-height: 0;
+    max-width: 440px;
+    padding: 26px 24px;
+  }
+  .feature-headline {
+    font-size: clamp(26px, 6.5vw, 34px);
+    letter-spacing: -1.2px;
+    max-width: none;
+  }
+  /* Static mesh on touch devices: 4 large blurred layers animating is a GPU hog */
+  .mesh-glow {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ---- Auth: phones — 16px inputs (no iOS zoom), 44px+ targets ---- */
+@media (max-width: 640px) {
+  .auth-layout {
+    gap: 20px;
+    padding: 20px 16px 40px;
+    padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+  }
+  .auth-card {
+    padding: 20px 16px 16px;
+    border-radius: 22px;
+  }
+  .auth-feature-card {
+    padding: 22px 20px;
+    border-radius: 22px;
+  }
+  .auth-toggles-container {
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .auth-tabs {
+    width: min(220px, 100%);
+  }
+  .auth-tabs button {
+    padding: 10px 0;
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .auth-field > div {
+    height: 48px;
+  }
+  .auth-field input,
+  .auth-field input::placeholder {
+    font-size: 16px;
+  }
+  .password-toggle {
+    width: 40px;
+    height: 40px;
+    margin-right: -8px;
+  }
+  .auth-submit {
+    height: 50px;
+    font-size: 15px;
+  }
+  .google-auth-button {
+    min-height: 50px;
+    font-size: 14px;
+  }
+  .auth-foot {
+    font-size: 13px;
+  }
+  .auth-foot button {
+    min-height: 44px;
+    padding: 10px 6px;
+  }
+}
+
+/* ---- Motion discipline on coarse pointers ---- */
+@media (pointer: coarse) {
+  .scanner-stage:hover .scanner-package-card {
+    transform: rotateY(0) rotateX(0) rotate(0);
+  }
+  .entry-cta:hover {
+    transform: none;
+  }
+  .scanner-grid {
+    opacity: 0.45;
+  }
+}
+@media (pointer: coarse) and (prefers-reduced-motion: no-preference) {
+  .scanner-laser-line,
+  .scanner-laser-cone {
+    animation-duration: 5s;
+  }
+}
+

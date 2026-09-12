@@ -538,15 +538,15 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
             <div className="auth-tabs-wrap workspace-tabs-wrap">
               <div className="auth-tabs" data-active={role === 'admin' ? '1' : '0'}>
                 <div className={`auth-capsule-thumb ${role === 'admin' ? 'pos-right' : 'pos-left'}`} aria-hidden="true" />
-                <button type="button" className={role === 'user' ? 'active' : ''} onClick={() => setRole('user')}>User</button>
-                <button type="button" className={role === 'admin' ? 'active' : ''} onClick={() => setRole('admin')}>Admin</button>
+                <button type="button" className={role === 'user' ? 'active' : ''} aria-pressed={role === 'user'} onClick={() => setRole('user')}>User</button>
+                <button type="button" className={role === 'admin' ? 'active' : ''} aria-pressed={role === 'admin'} onClick={() => setRole('admin')}>Admin</button>
               </div>
             </div>
             <div className="auth-tabs-wrap mode-tabs-wrap">
               <div className="auth-tabs" data-active={mode === 'login' ? '1' : '0'}>
                 <div className={`auth-capsule-thumb ${mode === 'login' ? 'pos-right' : 'pos-left'}`} aria-hidden="true" />
-                <button type="button" className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setError('') }}>Sign Up</button>
-                <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError('') }}>Log In</button>
+                <button type="button" className={mode === 'signup' ? 'active' : ''} aria-pressed={mode === 'signup'} onClick={() => { setMode('signup'); setError('') }}>Sign Up</button>
+                <button type="button" className={mode === 'login' ? 'active' : ''} aria-pressed={mode === 'login'} onClick={() => { setMode('login'); setError('') }}>Log In</button>
               </div>
             </div>
           </div>
@@ -554,18 +554,18 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
             {mode === 'signup' && (
               <label className="auth-field" aria-label="Full Name">
                 <div>
-                  <input required minLength={2} type="text" value={form.full_name} onChange={(event) => update('full_name', event.target.value)} placeholder="Full Name" autoComplete="name" />
+                  <input required minLength={2} type="text" value={form.full_name} onChange={(event) => update('full_name', event.target.value)} placeholder="Full Name" autoComplete="name" enterKeyHint="next" />
                 </div>
               </label>
             )}
             <label className="auth-field" aria-label="Email Address">
               <div>
-                <input required type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Email Address" autoComplete="email" />
+                <input required type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Email Address" autoComplete="email" inputMode="email" enterKeyHint="next" />
               </div>
             </label>
             <label className="auth-field" aria-label="Password">
               <div>
-                <input required minLength={6} type={showPassword ? 'text' : 'password'} value={form.password} onChange={(event) => update('password', event.target.value)} placeholder="Password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+                <input required minLength={6} type={showPassword ? 'text' : 'password'} value={form.password} onChange={(event) => update('password', event.target.value)} placeholder="Password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} enterKeyHint="go" />
                 <button type="button" className="password-toggle" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'} tabIndex={-1}>
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
