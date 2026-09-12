@@ -738,6 +738,13 @@ function App() {
 
   return (
     <div className="app-shell">
+      {mobileNavOpen && (
+        <div 
+          className="mobile-sidebar-backdrop" 
+          onClick={() => setMobileNavOpen(false)} 
+          aria-hidden="true" 
+        />
+      )}
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}>
         <button
           className="sidebar-rail-toggle"
@@ -765,10 +772,10 @@ function App() {
             </button>
           ))}
         </nav>
+        {isAdmin(user) && (
         <div className="sidebar-section">
             <div className="sidebar-heading">System</div>
-            {isAdmin(user) && (
-              <button
+            <button
                 title={sidebarCollapsed ? t('analytics', lang) : undefined}
                 className={`${activeView === 'analytics' ? 'nav-item active' : 'nav-item'} analytics-nav-item`}
                 onClick={() => { setActiveView('analytics'); setSelectedId(null); setMobileNavOpen(false) }}
@@ -776,7 +783,6 @@ function App() {
                 <BarChart3 size={18} />
                 <span>{t('analytics', lang)}</span>
               </button>
-            )}
             <button
               title={sidebarCollapsed ? t('technicalDoc', lang) : undefined}
               className={`${activeView === 'documentation' ? 'nav-item active' : 'nav-item'} documentation-nav-item`}
@@ -786,6 +792,7 @@ function App() {
               <span>{t('technicalDoc', lang)}</span>
             </button>
           </div>
+        )}
         <div className="sidebar-footer">
           <div className="account-menu" onClick={(event) => event.stopPropagation()}>
             <button className="user-chip" title={sidebarCollapsed ? displayName(user) : undefined} onClick={() => setAccountOpen((open) => !open)} aria-expanded={accountOpen}>
@@ -837,7 +844,7 @@ function App() {
         {activeView === 'enforcement' && <EnforcementView user={user} inspection={selectedInspection || inspections[0]} onNavigate={setActiveView} lang={lang} />}
         {activeView === 'analytics' && (isAdmin(user) ? <AnalyticsView stats={stats} inspections={inspections} lang={lang} /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} lang={lang} />)}
         {activeView === 'configuration' && <ConfigurationView theme={theme} onToggleTheme={toggleTheme} lang={lang} />}
-        {activeView === 'documentation' && <DocumentationView lang={lang} />}
+        {activeView === 'documentation' && (isAdmin(user) ? <DocumentationView lang={lang} /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} lang={lang} />)}
       </main>
       {accountModal === 'profile' && <ProfileModal user={user} onClose={() => setAccountModal(null)} lang={lang} />}
       {signOutOpen && <ConfirmModal onCancel={() => setSignOutOpen(false)} onConfirm={signOut} lang={lang} />}
@@ -959,7 +966,7 @@ function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang
           <strong>{t('rule6Active', lang)}</strong>
           <span>{t('rule6Desc', lang)}</span>
         </div>
-        <button className="button secondary pill-cta-sm" onClick={() => onNavigate('documentation')}>
+        <button className="button secondary pill-cta-sm" onClick={() => onNavigate(isAdmin(user) ? 'documentation' : 'enforcement')}>
           <span>{t('systemHealth', lang)}</span>
           <ArrowUpRight size={14} />
         </button>
