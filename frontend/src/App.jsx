@@ -684,17 +684,17 @@ function App() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''} ${mobileNavOpen ? 'open' : ''}`}>
+        <button
+          className="sidebar-rail-toggle"
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onClick={toggleSidebar}
+        >
+          <Menu size={15} />
+        </button>
         <div className="brand">
           <div className="brand-mark"><img src="/synaptix-logo.png" alt="Synaptix Logo" className="brand-logo-img" /></div>
           <div><strong>synaptix</strong><span>{t('fieldIntelligence', lang)}</span></div>
-          <button
-            className="sidebar-collapse-btn"
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            onClick={toggleSidebar}
-          >
-            <Menu size={16} />
-          </button>
         </div>
         <nav className="primary-nav" aria-label="Primary navigation">
           {NAV_DEFINITIONS.map(({ id, key, icon: Icon }) => (
@@ -710,17 +710,18 @@ function App() {
             </button>
           ))}
         </nav>
-        {isAdmin(user) && (
-          <div className="sidebar-section">
+        <div className="sidebar-section">
             <div className="sidebar-heading">System</div>
-            <button
-              title={sidebarCollapsed ? t('analytics', lang) : undefined}
-              className={`${activeView === 'analytics' ? 'nav-item active' : 'nav-item'} analytics-nav-item`}
-              onClick={() => { setActiveView('analytics'); setSelectedId(null); setMobileNavOpen(false) }}
-            >
-              <BarChart3 size={18} />
-              <span>{t('analytics', lang)}</span>
-            </button>
+            {isAdmin(user) && (
+              <button
+                title={sidebarCollapsed ? t('analytics', lang) : undefined}
+                className={`${activeView === 'analytics' ? 'nav-item active' : 'nav-item'} analytics-nav-item`}
+                onClick={() => { setActiveView('analytics'); setSelectedId(null); setMobileNavOpen(false) }}
+              >
+                <BarChart3 size={18} />
+                <span>{t('analytics', lang)}</span>
+              </button>
+            )}
             <button
               title={sidebarCollapsed ? t('technicalDoc', lang) : undefined}
               className={`${activeView === 'documentation' ? 'nav-item active' : 'nav-item'} documentation-nav-item`}
@@ -730,7 +731,6 @@ function App() {
               <span>{t('technicalDoc', lang)}</span>
             </button>
           </div>
-        )}
         <div className="sidebar-footer">
           <div className="account-menu" onClick={(event) => event.stopPropagation()}>
             <button className="user-chip" title={sidebarCollapsed ? user?.full_name || 'Inspector' : undefined} onClick={() => setAccountOpen((open) => !open)} aria-expanded={accountOpen}>
@@ -782,7 +782,7 @@ function App() {
         {activeView === 'enforcement' && <EnforcementView user={user} inspection={selectedInspection || inspections[0]} onNavigate={setActiveView} lang={lang} />}
         {activeView === 'analytics' && (isAdmin(user) ? <AnalyticsView stats={stats} inspections={inspections} lang={lang} /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} lang={lang} />)}
         {activeView === 'configuration' && <ConfigurationView theme={theme} onToggleTheme={toggleTheme} lang={lang} />}
-        {activeView === 'documentation' && (isAdmin(user) ? <DocumentationView lang={lang} /> : <Dashboard user={user} stats={stats} inspections={inspections} loading={loading} onNavigate={setActiveView} onOpen={openInspection} lang={lang} />)}
+        {activeView === 'documentation' && <DocumentationView lang={lang} />}
       </main>
       {accountModal === 'profile' && <ProfileModal user={user} onClose={() => setAccountModal(null)} lang={lang} />}
       {signOutOpen && <ConfirmModal onCancel={() => setSignOutOpen(false)} onConfirm={signOut} lang={lang} />}
