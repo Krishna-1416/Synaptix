@@ -523,7 +523,14 @@ function App() {
   const [user, setUser] = useState(() => {
     try {
       const saved = window.localStorage.getItem('synaptix_user')
-      return saved ? JSON.parse(saved) : null
+      if (!saved) return null
+      const parsed = JSON.parse(saved)
+      if (parsed?.full_name?.toLowerCase().includes('riya') || parsed?.name?.toLowerCase().includes('riya')) {
+        const cleaned = { ...parsed, full_name: 'Inspector', name: 'Inspector' }
+        window.localStorage.setItem('synaptix_user', JSON.stringify(cleaned))
+        return cleaned
+      }
+      return parsed
     } catch {
       return null
     }
@@ -680,6 +687,14 @@ function App() {
         <div className="brand">
           <div className="brand-mark"><img src="/synaptix-logo.png" alt="Synaptix Logo" className="brand-logo-img" /></div>
           <div><strong>synaptix</strong><span>{t('fieldIntelligence', lang)}</span></div>
+          <button
+            className="sidebar-collapse-btn"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={toggleSidebar}
+          >
+            <Menu size={16} />
+          </button>
         </div>
         <nav className="primary-nav" aria-label="Primary navigation">
           {NAV_DEFINITIONS.map(({ id, key, icon: Icon }) => (
@@ -717,11 +732,10 @@ function App() {
           </div>
         )}
         <div className="sidebar-footer">
-          <ThemeToggle theme={theme} onToggle={toggleTheme} />
           <div className="account-menu" onClick={(event) => event.stopPropagation()}>
-            <button className="user-chip" title={sidebarCollapsed ? user.full_name || 'User' : undefined} onClick={() => setAccountOpen((open) => !open)} aria-expanded={accountOpen}>
+            <button className="user-chip" title={sidebarCollapsed ? user?.full_name || 'Inspector' : undefined} onClick={() => setAccountOpen((open) => !open)} aria-expanded={accountOpen}>
               <div className="avatar">{initials(user)}</div>
-              <div><strong>{user.full_name || 'User'}</strong><span>{displayRole(user)}</span></div>
+              <div><strong>{user?.full_name || 'Inspector'}</strong><span>{displayRole(user)}</span></div>
               <ChevronRight size={16} />
             </button>
             {accountOpen && (
@@ -734,14 +748,6 @@ function App() {
             )}
           </div>
         </div>
-        <button
-          className="sidebar-rail-toggle"
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          onClick={toggleSidebar}
-        >
-          <Menu size={14} />
-        </button>
       </aside>
       <main className="main-content">
         <header className="topbar">
@@ -832,7 +838,8 @@ function ConfirmModal({ onCancel, onConfirm, lang }) {
 }
 
 function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang }) {
-  const firstName = (user?.full_name || '').trim().split(' ')[0] || (isAdmin(user) ? 'Admin' : 'Inspector')
+  const rawName = (user?.full_name || user?.name || '').trim().split(' ')[0]
+  const firstName = (!rawName || rawName.toLowerCase() === 'riya') ? (isAdmin(user) ? 'Admin' : 'Inspector') : rawName
   const todayStr = new Intl.DateTimeFormat(lang === 'hi' ? 'hi-IN' : lang === 'mr' ? 'mr-IN' : 'en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
   return (
     <div className="page">
@@ -890,12 +897,18 @@ function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang
         </div>
       )}
       <section className="insight-strip">
-        <div className="insight-icon"><Activity size={19} /></div>
-        <div>
+        <div className="insight-icon-halo">
+          <Activity size={18} />
+          <span className="live-pulse" />
+        </div>
+        <div className="insight-copy">
           <strong>{t('rule6Active', lang)}</strong>
           <span>{t('rule6Desc', lang)}</span>
         </div>
-        <button className="text-button">{t('systemHealth', lang)} <ArrowUpRight size={15} /></button>
+        <button className="button secondary pill-cta-sm" onClick={() => onNavigate('documentation')}>
+          <span>{t('systemHealth', lang)}</span>
+          <ArrowUpRight size={14} />
+        </button>
       </section>
     </div>
   )
@@ -1162,12 +1175,17 @@ function ToggleRow({ label, detail, checked, onChange }) {
 
 function Metric({ label, value, detail, icon: Icon, tone, trend }) {
   return (
-    <div className="metric-card">
-      <div className={`metric-icon ${tone}`}><Icon size={18} /></div>
-      <div className="metric-copy">
-        <span>{label}</span>
-        <strong>{value}</strong>
-        <small>{trend && <em>{trend}</em>}{detail}</small>
+    <div className={`metric-card metric-tone-${tone || 'ink'}`}>
+      <div className="metric-card-header">
+        <span className="metric-label">{label}</span>
+        <div className={`metric-icon ${tone || 'ink'}`}><Icon size={18} /></div>
+      </div>
+      <div className="metric-card-body">
+        <strong className="metric-value">{value}</strong>
+        <div className="metric-detail">
+          {trend && <span className="metric-trend">{trend}</span>}
+          <span>{detail}</span>
+        </div>
       </div>
     </div>
   )
@@ -1239,6 +1257,7 @@ function Scan({ onComplete, onCancel, user, lang }) {
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState('')
   const [progress, setProgress] = useState({ extract: 'pending', check: 'pending', decide: 'pending', message: '' })
+  const fileInputRef = useRef(null)
   const videoRef = useRef(null)
   const streamRef = useRef(null)
 
@@ -1317,10 +1336,10 @@ function Scan({ onComplete, onCancel, user, lang }) {
   return (
     <div className="page scan-page">
       <PageIntro
-        eyebrow={t('newInspection', lang)}
-        title={t('readLabel', lang)}
+        eyebrow={<><span className="live-pulse" /> {t('newInspection', lang)}</>}
+        title={<>{t('readLabel', lang)}</>}
         description={t('captureOrUploadPhoto', lang)}
-        action={<button className="text-button" onClick={onCancel}>{t('cancel', lang)}</button>}
+        action={<button className="button secondary pill-cta-sm" onClick={onCancel}>{t('cancel', lang)}</button>}
       />
       <form className="scan-layout" onSubmit={submit}>
         <div className="scan-main">
@@ -1342,26 +1361,47 @@ function Scan({ onComplete, onCancel, user, lang }) {
                 onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}
+                onClick={() => {
+                  if (!file) fileInputRef.current?.click()
+                }}
               >
-                <input id="label-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => acceptFile(event.target.files[0])} />
+                <input
+                  ref={fileInputRef}
+                  id="label-image"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(event) => acceptFile(event.target.files[0])}
+                />
                 {file ? (
-                  <div className="file-preview">
-                    <ImagePlus size={25} />
-                    <div>
+                  <div className="file-preview" onClick={(e) => e.stopPropagation()}>
+                    <div className="file-preview-icon"><ImagePlus size={24} /></div>
+                    <div className="file-preview-info">
                       <strong>{file.name}</strong>
-                      <span>{(file.size / 1024 / 1024).toFixed(2)} MB · ready for analysis</span>
+                      <span>{(file.size / 1024 / 1024).toFixed(2)} MB · Ready for statutory analysis</span>
                     </div>
-                    <button type="button" className="remove-file" onClick={() => setFile(null)} aria-label="Remove file"><X size={17} /></button>
+                    <button type="button" className="remove-file-btn" onClick={() => setFile(null)} aria-label="Remove file"><X size={16} /></button>
                   </div>
                 ) : (
-                  <label htmlFor="label-image">
-                    <div className="upload-icon"><UploadCloud size={24} /></div>
-                    <strong>{t('dropLabelHere', lang)}</strong>
-                    <span>{t('orBrowse', lang)}</span>
-                  </label>
+                  <div className="upload-zone-content">
+                    <div className="upload-icon-halo">
+                      <UploadCloud size={32} />
+                    </div>
+                    <strong className="upload-title">{t('dropLabelHere', lang)}</strong>
+                    <div className="upload-subtitle">
+                      <span>{t('orBrowse', lang)}</span>
+                      <span className="browse-pill-btn">Browse files</span>
+                    </div>
+                    <span className="upload-spec-badge">JPG, PNG, WEBP up to 10 MB · High-res recommended</span>
+                  </div>
                 )}
               </div>
-              <button type="button" className="camera-launch" onClick={startCamera}><Camera size={17} /> {t('useLiveCamera', lang)}</button>
+              <div className="scan-actions-row">
+                <button type="button" className="camera-launch-btn" onClick={startCamera}>
+                  <Camera size={16} />
+                  <span>{t('useLiveCamera', lang)}</span>
+                </button>
+              </div>
             </>
           )}
           {cameraError && <div className="form-error camera-error"><Camera size={16} />{cameraError}</div>}
@@ -1374,30 +1414,49 @@ function Scan({ onComplete, onCancel, user, lang }) {
           <div className="panel form-panel">
             <div className="eyebrow">{t('inspectionContext', lang)}</div>
             <h2>{t('tellUsLookingAt', lang)}</h2>
-            <label>
-              {t('productName', lang)} <span>{t('optional', lang)}</span>
-              <input value={productName} onChange={(event) => setProductName(event.target.value)} placeholder="e.g. Harvest Gold Rice" />
-            </label>
-            <label>
-              {t('category', lang)}
-              <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                <option>{t('packagedCommodity', lang)}</option>
-                <option>{t('foodBeverage', lang)}</option>
-                <option>{t('personalCare', lang)}</option>
-                <option>{t('household', lang)}</option>
-                <option>{t('other', lang)}</option>
-              </select>
-            </label>
+            <div className="form-fields">
+              <label className="field-group">
+                <span className="field-label">
+                  {t('productName', lang)} <span className="optional-tag">{t('optional', lang)}</span>
+                </span>
+                <input
+                  className="field-input"
+                  value={productName}
+                  onChange={(event) => setProductName(event.target.value)}
+                  placeholder="e.g. Harvest Gold Rice"
+                />
+              </label>
+              <label className="field-group">
+                <span className="field-label">{t('category', lang)}</span>
+                <select
+                  className="field-select"
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                >
+                  <option>{t('packagedCommodity', lang)}</option>
+                  <option>{t('foodBeverage', lang)}</option>
+                  <option>{t('personalCare', lang)}</option>
+                  <option>{t('household', lang)}</option>
+                  <option>{t('other', lang)}</option>
+                </select>
+              </label>
+            </div>
             {error && <div className="form-error"><XCircle size={16} />{error}</div>}
-            <button className="button primary wide" disabled={submitting}>
-              {submitting ? <><LoaderCircle className="spinner" size={17} /> {t('analysingLabel', lang)}</> : <><ClipboardCheck size={17} /> {t('runInspection', lang)}</>}
+            <button className="button primary pill-cta scan-submit-btn" disabled={submitting}>
+              {submitting ? (
+                <><LoaderCircle className="spinner" size={17} /> <span>{t('analysingLabel', lang)}</span></>
+              ) : (
+                <><ClipboardCheck size={17} /> <span>{t('runInspection', lang)}</span> <ArrowUpRight size={15} /></>
+              )}
             </button>
           </div>
-          <div className="pipeline-list">
+          <div className="panel pipeline-panel">
             <div className="eyebrow">{t('whatHappensNext', lang)}</div>
-            <PipelineStep number="01" title={t('stepExtract', lang)} text={t('stepExtractDesc', lang)} />
-            <PipelineStep number="02" title={t('stepCheck', lang)} text={t('stepCheckDesc', lang)} />
-            <PipelineStep number="03" title={t('stepDecide', lang)} text={t('stepDecideDesc', lang)} />
+            <div className="pipeline-steps">
+              <PipelineStep number="01" title={t('stepExtract', lang)} text={t('stepExtractDesc', lang)} />
+              <PipelineStep number="02" title={t('stepCheck', lang)} text={t('stepCheckDesc', lang)} />
+              <PipelineStep number="03" title={t('stepDecide', lang)} text={t('stepDecideDesc', lang)} />
+            </div>
           </div>
         </aside>
       </form>
@@ -1408,13 +1467,15 @@ function Scan({ onComplete, onCancel, user, lang }) {
 function PipelineStep({ number, title, text, status }) {
   const currentStatus = status || activeInspectionProgress[title.toLowerCase()] || 'pending'
   const statusText = currentStatus === 'processing' ? 'Processing...' : currentStatus === 'completed' ? 'Completed' : text
-  const statusIcon = currentStatus === 'completed' ? <Check size={14} /> : currentStatus === 'processing' ? <LoaderCircle className="spinner" size={14} /> : currentStatus === 'failed' ? <X size={14} /> : <span className="pending-mark">○</span>
+  const statusIcon = currentStatus === 'completed' ? <Check size={14} /> : currentStatus === 'processing' ? <LoaderCircle className="spinner" size={14} /> : currentStatus === 'failed' ? <X size={14} /> : <span className="pending-mark" />
   return (
     <div className={`pipeline-step ${currentStatus}`}>
       <span className="pipeline-number">{number}</span>
-      <span className="pipeline-status">{statusIcon}</span>
-      <div>
-        <strong>{title}</strong>
+      <div className="pipeline-content">
+        <div className="pipeline-step-header">
+          <strong>{title}</strong>
+          <span className="pipeline-status-badge">{statusIcon}</span>
+        </div>
         <small>{statusText}</small>
       </div>
     </div>
