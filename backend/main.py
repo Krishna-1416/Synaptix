@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from backend.config import settings
-from backend.services.supabase_client import get_supabase_client
+from backend.services.supabase_client import get_supabase_client, get_supabase_admin_client
 from backend.api.inspect import router as inspect_router
 from backend.api.inspections import router as inspections_router
 from backend.api.reports import router as reports_router
@@ -34,8 +34,9 @@ app = FastAPI(
 # CORS Middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS if settings.CORS_ORIGINS else ["*"],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ORIGINS if settings.CORS_ORIGINS else [],
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -62,13 +63,19 @@ def root():
 @app.get("/api/health", tags=["System"])
 def health_check():
     """System health check endpoint verifying database connectivity."""
-    db_status = "connected" if get_supabase_client() is not None else "mock_mode"
+    db_status = "connected" if get_supabase_admin_client() is not None else "mock_mode"
     return {
         "status": "healthy",
         "system": "Synaptix SIH26034",
         "database": db_status,
         "docs": "/docs"
     }
+
+
+@app.get("/health", tags=["System"])
+def public_health_check():
+    """Deployment health endpoint for Render and external uptime checks."""
+    return health_check()
 
 
 @app.exception_handler(Exception)

@@ -23,6 +23,17 @@ logger = logging.getLogger("synaptix.inspection_service")
 _MEMORY_INSPECTIONS: Dict[str, Dict[str, Any]] = {}
 
 
+def _database_inspector_id(inspector_id: Optional[str]) -> Optional[str]:
+    """Only send UUID-shaped auth identities to Supabase UUID columns."""
+    if not inspector_id:
+        return None
+    try:
+        uuid.UUID(str(inspector_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+    return str(inspector_id)
+
+
 def _run_cv_preprocess(image_bytes: bytes) -> bytes:
     """Validate image bytes and deskew using the cv/ module."""
     from ocr.preprocess_handoff import PreprocessHandoff
@@ -41,7 +52,6 @@ def _run_cv_preprocess(image_bytes: bytes) -> bytes:
     except Exception as e:
         logger.warning(f"CV deskew preprocessing fallback used: {e}")
         return image_bytes
-
 
 def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, MandatoryFields]:
     """
@@ -214,8 +224,14 @@ class InspectionService:
             except Exception as e:
                 logger.warning(f"Failed to upload annotated overlay image ({e}).")
 
-        # 5. Rule Engine evaluation
-        compliance = evaluate_compliance(fields.model_dump(), visual_checks.model_dump())
+        # 5. Rule Engine evaluation — pass OCR confidences and category for richer scoring
+        ocr_confidences = [item.confidence for item in ocr_raw.texts if item.confidence > 0]
+        compliance = evaluate_compliance(
+            fields.model_dump(),
+            visual_checks.model_dump(),
+            ocr_confidences=ocr_confidences,
+            product_category=product_category,
+        )
 
         # Construct InspectionResult (matching shared/schemas/inspection_schema.json)
         result = InspectionResult(
@@ -231,7 +247,8 @@ class InspectionService:
             fields=fields,
             visual_checks=visual_checks,
             compliance=compliance,
-            created_at=datetime.now(timezone.utc).isoformat()
+            created_at=datetime.now(timezone.utc).isoformat(),
+            user_id=inspector_id
         )
 
         # 6. Database Persistence
@@ -256,7 +273,7 @@ class InspectionService:
             "visual_checks": visual_data,
             "compliance": inspection.compliance.model_dump(),
             "created_at": inspection.created_at,
-            "inspector_id": inspector_id
+            "user_id": _database_inspector_id(inspector_id)
         }
 
         # Cache in memory
@@ -278,13 +295,15 @@ class InspectionService:
         inspection_id: str,
         updated_fields: Optional[MandatoryFields] = None,
         updated_product: Optional[ProductInfo] = None,
-        inspector_id: Optional[str] = None
+        inspector_id: Optional[str] = None,
+        requester_id: Optional[str] = None,
+        is_admin: bool = False
     ) -> Optional[InspectionResult]:
         """
         Inspector Override: updates extracted declaration fields and/or product details,
         re-evaluates Legal Metrology rules in real-time, and updates persistence.
         """
-        existing = await InspectionService.get_inspection(inspection_id)
+        existing = await InspectionService.get_inspection(inspection_id, requester_id=requester_id, is_admin=is_admin)
         if not existing:
             return None
 
@@ -307,7 +326,13 @@ class InspectionService:
         # Re-evaluate compliance with updated fields
         from backend.rules.engine import evaluate_compliance
         visual_dict = existing.visual_checks.model_dump() if existing.visual_checks else {}
-        new_compliance = evaluate_compliance(merged_fields.model_dump(), visual_dict)
+        ocr_confidences = [item.confidence for item in (existing.ocr_raw.texts if existing.ocr_raw else []) if item.confidence > 0]
+        new_compliance = evaluate_compliance(
+            merged_fields.model_dump(),
+            visual_dict,
+            ocr_confidences=ocr_confidences,
+            product_category=merged_product.category,
+        )
 
         # Construct updated result
         updated_result = InspectionResult(
@@ -320,7 +345,8 @@ class InspectionService:
             fields=merged_fields,
             visual_checks=existing.visual_checks,
             compliance=new_compliance,
-            created_at=existing.created_at
+            created_at=existing.created_at,
+            user_id=existing.user_id
         )
 
         # Update record
@@ -338,7 +364,9 @@ class InspectionService:
             "visual_checks": visual_data,
             "compliance": updated_result.compliance.model_dump(),
             "created_at": updated_result.created_at,
-            "inspector_id": inspector_id or _MEMORY_INSPECTIONS.get(inspection_id, {}).get("inspector_id")
+            "user_id": _database_inspector_id(
+                inspector_id or _MEMORY_INSPECTIONS.get(inspection_id, {}).get("user_id")
+            )
         }
         _MEMORY_INSPECTIONS[inspection_id] = record
 
@@ -358,12 +386,19 @@ class InspectionService:
         return updated_result
 
     @staticmethod
-    async def get_inspection(inspection_id: str) -> Optional[InspectionResult]:
+    async def get_inspection(
+        inspection_id: str,
+        requester_id: Optional[str] = None,
+        is_admin: bool = False,
+    ) -> Optional[InspectionResult]:
         """Fetch single inspection record by inspection_id."""
         admin_client = get_supabase_admin_client()
         if admin_client:
             try:
-                res = admin_client.table("inspections").select("*").eq("inspection_id", inspection_id).execute()
+                query = admin_client.table("inspections").select("*").eq("inspection_id", inspection_id)
+                if not is_admin and requester_id:
+                    query = query.eq("user_id", requester_id)
+                res = query.execute()
                 if res.data and len(res.data) > 0:
                     row = res.data[0]
                     if not row.get("annotated_image_url"):
@@ -374,7 +409,7 @@ class InspectionService:
 
         # Fallback to in-memory
         record = _MEMORY_INSPECTIONS.get(inspection_id)
-        if record:
+        if record and (is_admin or not requester_id or record.get("user_id") == requester_id):
             if not record.get("annotated_image_url"):
                 record["annotated_image_url"] = (record.get("visual_checks") or {}).get("overlay_image")
             return InspectionResult(**record)
@@ -386,13 +421,17 @@ class InspectionService:
         limit: int = 10,
         status: Optional[str] = None,
         search: Optional[str] = None,
-        inspector_id: Optional[str] = None
+        requester_id: Optional[str] = None,
+        is_admin: bool = False,
+        inspector_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """List inspections with optional filtering and pagination."""
         admin_client = get_supabase_admin_client()
         if admin_client:
             try:
                 query = admin_client.table("inspections").select("*", count="exact")
+                if not is_admin and requester_id:
+                    query = query.eq("user_id", requester_id)
                 if status:
                     query = query.eq("compliance->>status", status.upper())
                 if search:
@@ -416,6 +455,8 @@ class InspectionService:
 
         # Fallback to in-memory
         all_items = list(_MEMORY_INSPECTIONS.values())
+        if not is_admin and requester_id:
+            all_items = [item for item in all_items if item.get("user_id") == requester_id]
         filtered = all_items
         if status:
             filtered = [item for item in filtered if item.get("compliance", {}).get("status") == status.upper()]
@@ -442,23 +483,40 @@ class InspectionService:
         return {"data": items, "total": total, "page": page, "limit": limit}
 
     @staticmethod
-    async def delete_inspection(inspection_id: str) -> bool:
+    async def delete_inspection(
+        inspection_id: str,
+        requester_id: Optional[str] = None,
+        is_admin: bool = False,
+    ) -> bool:
         """Deletes inspection record."""
-        _MEMORY_INSPECTIONS.pop(inspection_id, None)
+        memory_record = _MEMORY_INSPECTIONS.get(inspection_id)
+        if memory_record and (is_admin or not requester_id or memory_record.get("user_id") == requester_id):
+            _MEMORY_INSPECTIONS.pop(inspection_id, None)
+            existed_in_memory = True
+        else:
+            existed_in_memory = False
         admin_client = get_supabase_admin_client()
         if admin_client:
             try:
-                admin_client.table("inspections").delete().eq("inspection_id", inspection_id).execute()
-                return True
+                query = admin_client.table("inspections").delete().eq("inspection_id", inspection_id)
+                if not is_admin and requester_id:
+                    query = query.eq("user_id", requester_id)
+                response = query.execute()
+                return existed_in_memory or bool(response.data)
             except Exception as e:
                 logger.error(f"Supabase delete failed: {e}")
-                return False
-        return True
+                return existed_in_memory
+        return existed_in_memory
 
     @staticmethod
     async def get_dashboard_metrics() -> Dict[str, Any]:
         """Aggregate stats for inspector analytics dashboard."""
-        list_res = await InspectionService.list_inspections(page=1, limit=1000)
+        list_res = await InspectionService.list_inspections(
+            page=1,
+            limit=1000,
+            requester_id=requester_id,
+            is_admin=is_admin,
+        )
         inspections = list_res.get("data", [])
 
         total = len(inspections)
@@ -467,17 +525,41 @@ class InspectionService:
         review = sum(1 for i in inspections if i.compliance.status == ComplianceStatus.REVIEW)
 
         all_violations = []
+        rule_counts: Dict[str, int] = {}
+        confidence_values = []
         for i in inspections:
             all_violations.extend(i.compliance.violations)
+            if i.compliance.confidence is not None:
+                confidence_values.append(i.compliance.confidence)
+            for rule in i.compliance.rule_results:
+                if rule.status in {"FAIL", "REVIEW"}:
+                    rule_counts[rule.name] = rule_counts.get(rule.name, 0) + 1
 
         compliance_rate = round((passed / total * 100), 1) if total > 0 else 0.0
+        average_confidence = round(sum(confidence_values) / len(confidence_values) * 100, 1) if confidence_values else 0.0
+        most_violated_rules = [
+            {"rule": name, "count": count}
+            for name, count in sorted(rule_counts.items(), key=lambda item: item[1], reverse=True)[:8]
+        ]
 
         return {
+            # Primary keys the frontend normalizeStats() reads
             "total_inspections": total,
+            "total": total,
             "compliant_count": passed,
+            "compliant": passed,
+            "pass_count": passed,
             "violations_count": failed,
+            "non_compliant": failed,
+            "fail_count": failed,
             "review_count": review,
+            "review": review,
             "compliance_rate_pct": compliance_rate,
+            "compliance_rate": compliance_rate,
             "total_violations_flagged": len(all_violations),
-            "recent_violations": all_violations[:8]
+            "recent_alerts": len(all_violations),
+            "recent_violations": all_violations[:8],
+            "average_confidence": average_confidence,
+            "confidence": average_confidence,
+            "most_violated_rules": most_violated_rules
         }

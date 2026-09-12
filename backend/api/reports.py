@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import Response
 from backend.services.inspection_service import InspectionService
 from backend.services.report_service import generate_compliance_pdf
+from backend.models.auth import UserProfile
+from backend.api.auth import require_auth
 
 router = APIRouter(prefix="/report", tags=["Reports"])
 
@@ -11,8 +13,12 @@ router = APIRouter(prefix="/report", tags=["Reports"])
     summary="Download Legal Metrology Compliance Inspection Certificate (PDF)",
     description="Generates an official PDF certificate with declaration audits, statutory violations, and verification signature blocks."
 )
-async def download_inspection_report(inspection_id: str):
-    inspection = await InspectionService.get_inspection(inspection_id)
+async def download_inspection_report(inspection_id: str, user: UserProfile = Depends(require_auth)):
+    inspection = await InspectionService.get_inspection(
+        inspection_id,
+        requester_id=user.id,
+        is_admin=user.role in {"admin", "administrator"},
+    )
     if not inspection:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

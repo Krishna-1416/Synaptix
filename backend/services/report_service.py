@@ -1,12 +1,29 @@
 import io
 import os
+from urllib.request import urlopen
 from pathlib import Path
 from datetime import datetime, timezone
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from backend.models.inspection import InspectionResult, ComplianceStatus
+
+
+def _load_evidence_image(image_url: str | None) -> io.BytesIO | None:
+    """Load an inspection image from Supabase or the local upload fallback."""
+    if not image_url:
+        return None
+    try:
+        if image_url.startswith("http://") or image_url.startswith("https://"):
+            with urlopen(image_url, timeout=10) as response:
+                return io.BytesIO(response.read())
+        if image_url.startswith("/api/uploads/"):
+            local_path = Path(__file__).resolve().parent.parent / "uploads" / Path(image_url).name
+            return io.BytesIO(local_path.read_bytes())
+    except (OSError, ValueError, TimeoutError):
+        return None
+    return None
 
 
 def generate_compliance_pdf(inspection: InspectionResult) -> bytes:
@@ -114,6 +131,14 @@ def generate_compliance_pdf(inspection: InspectionResult) -> bytes:
     ]))
     story.append(meta_table)
     story.append(Spacer(1, 15))
+
+    # Include the original label as evidence in the generated certificate.
+    evidence = _load_evidence_image(inspection.image_url)
+    if evidence:
+        story.append(Paragraph("Evidence Image", section_heading))
+        evidence_image = Image(evidence, width=480, height=300, kind="proportional")
+        story.append(evidence_image)
+        story.append(Spacer(1, 15))
 
     # Declarations Table (Rule 6)
     story.append(Paragraph("1. Mandatory Declarations Audit (Rule 6)", section_heading))

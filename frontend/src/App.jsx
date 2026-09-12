@@ -7,8 +7,8 @@ import {
   StopCircle, Sun, SwitchCamera, UploadCloud, UserRound, X, XCircle,
   ExternalLink, Send, Paperclip, BookOpen, AlertTriangle, Download
 } from 'lucide-react'
-import { api, demoInspections } from './api'
-import { demoStats } from './demoData'
+import { api, resolveApiUrl } from './api'
+import { demoStats, demoInspections } from './demoData'
 import { t } from './i18n'
 
 const NAV_DEFINITIONS = [
@@ -64,6 +64,15 @@ function displayRole(user) {
 
 function initials(user) {
   return (user?.full_name || 'User').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+}
+
+function consumeOAuthAccessToken() {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const accessToken = hash.get('access_token')
+  if (!accessToken) return null
+  window.localStorage.setItem('synaptix_access_token', accessToken)
+  window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)
+  return accessToken
 }
 
 function percentage(value, fallback = null) {
@@ -290,6 +299,18 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
     } finally { setBusy(false) }
   }
 
+  async function continueWithGoogle() {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.startGoogleLogin()
+      window.location.assign(result.url)
+    } catch (caught) {
+      setError(caught.message || 'Google authentication is unavailable.')
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="entry-screen auth-screen">
       <EntryHeader theme={theme} onToggleTheme={onToggleTheme} onBack={onBack} lang={lang} setLang={setLang} />
@@ -346,6 +367,9 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
               )}
             </button>
           </form>
+          <button type="button" className="button secondary google-auth-button" onClick={continueWithGoogle} disabled={busy}>
+            Continue with Google
+          </button>
           <div className="auth-foot">
             {mode === 'login' ? (
               <>Don't have an account? <button type="button" onClick={() => { setMode('signup'); setError('') }}>Sign Up</button></>
@@ -390,6 +414,19 @@ function App() {
       return next
     })
   }
+
+  useEffect(() => {
+    consumeOAuthAccessToken()
+    const token = window.localStorage.getItem('synaptix_access_token')
+    if (!token) return undefined
+    let mounted = true
+    api.getCurrentUser().then((currentUser) => {
+      if (mounted) handleAuthenticated(currentUser)
+    }).catch(() => {
+      window.localStorage.removeItem('synaptix_access_token')
+    })
+    return () => { mounted = false }
+  }, [])
 
   useEffect(() => {
     let mounted = true
