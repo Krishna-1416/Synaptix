@@ -173,7 +173,13 @@ function StatusBadge({ status, lang = 'en' }) {
   const meta = statusMeta[status] || statusMeta.REVIEW
   const Icon = meta.icon
   const label = status === 'PASS' ? t('compliant', lang) : status === 'FAIL' ? t('nonCompliant', lang) : t('needsReview', lang)
-  return <span className={`status-badge ${meta.className}`}><Icon size={13} strokeWidth={2.5} />{label}</span>
+  return (
+    <span className={`status-badge ${meta.className}`}>
+      <span className="status-badge-dot" />
+      <Icon size={12} strokeWidth={2.5} />
+      <span>{label}</span>
+    </span>
+  )
 }
 
 function ThemeToggle({ theme, onToggle, compact = false }) {
@@ -757,7 +763,7 @@ function App() {
               <button type="button" className={lang === 'hi' ? 'active' : ''} onClick={() => setLang('hi')}>हिं</button>
               <button type="button" className={lang === 'mr' ? 'active' : ''} onClick={() => setLang('mr')}>म</button>
             </div>
-            <span className={`connection-dot ${apiConnected ? '' : 'offline'}`}><Activity size={14} /> {apiConnected ? 'API connected' : 'Offline'}</span>
+            <span className={`connection-dot ${apiConnected ? '' : 'offline'}`}><span className="connection-pulse-dot" /><Activity size={13} /> {apiConnected ? 'API connected' : 'Offline'}</span>
             <ThemeToggle theme={theme} onToggle={toggleTheme} compact />
             <button className="icon-button" aria-label="Notifications"><Bell size={18} /><i /></button>
           </div>
@@ -779,7 +785,16 @@ function App() {
 }
 
 function PageIntro({ eyebrow, title, description, action }) {
-  return <div className="page-intro"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>
+  return (
+    <div className="page-intro">
+      <div className="page-intro-copy">
+        <div className="eyebrow">{eyebrow}</div>
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {action && <div className="page-intro-action">{action}</div>}
+    </div>
+  )
 }
 
 function ProfileModal({ user, onClose, lang }) {
@@ -822,10 +837,10 @@ function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang
   return (
     <div className="page">
       <PageIntro
-        eyebrow={todayStr}
-        title={`${t('goodMorning', lang)}, ${firstName}.`}
+        eyebrow={<><span className="live-pulse" /> {todayStr}</>}
+        title={<>{t('goodMorning', lang)}, <span className="auth-highlight">{firstName}.</span></>}
         description={t('deskGlance', lang)}
-        action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> {t('startInspection', lang)}</button>}
+        action={<button className="button primary pill-cta" onClick={() => onNavigate('scan')}><ImagePlus size={16} /> <span>{t('startInspection', lang)}</span> <ArrowUpRight size={15} /></button>}
       />
       <section className="metric-grid">
         <Metric label={t('totalInspections', lang)} value={stats.total} detail={t('allTime', lang)} icon={ClipboardCheck} tone="ink" />
@@ -1158,11 +1173,22 @@ function Metric({ label, value, detail, icon: Icon, tone, trend }) {
   )
 }
 
-function InspectionTable({ inspections, onOpen, showInspector = false, lang = 'en' }) {
+function InspectionTable({ inspections, onOpen, onNavigate, showInspector = false, lang = 'en' }) {
   if (!inspections || inspections.length === 0) {
     return (
-      <div className="table-empty-state" style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--muted, #64748b)' }}>
-        <p style={{ margin: 0, fontSize: '0.9rem' }}>No inspection records found. Run a new inspection to get started.</p>
+      <div className="table-empty-state">
+        <div className="empty-state-icon-halo">
+          <ImagePlus size={26} />
+        </div>
+        <h3>No inspection records found</h3>
+        <p>Run a new inspection to analyze packaged commodity labels and verify statutory compliance.</p>
+        {onNavigate && (
+          <button className="button primary pill-cta" onClick={() => onNavigate('scan')}>
+            <ImagePlus size={16} />
+            <span>{t('newInspection', lang)}</span>
+            <ArrowUpRight size={15} />
+          </button>
+        )}
       </div>
     )
   }
@@ -1416,18 +1442,23 @@ function HistoryView({ inspections, user, onOpen, onNavigate, lang }) {
     return matchesFilter && matchesSearch
   })
 
+  const rawTitle = t('historyTitle', lang)
+  const formattedTitle = rawTitle.includes(',')
+    ? <>{rawTitle.split(',')[0]}, <span className="auth-highlight">{rawTitle.split(',')[1]?.trim() || ''}</span></>
+    : <>{rawTitle}</>
+
   return (
     <div className="page">
       <PageIntro
-        eyebrow={t('inspectionHistory', lang)}
-        title={t('historyTitle', lang)}
+        eyebrow={<><span className="live-pulse" /> {t('inspectionHistory', lang)}</>}
+        title={formattedTitle}
         description={isUserAdmin ? t('historyDescAdmin', lang) : t('historyDescUser', lang)}
-        action={<button className="button primary" onClick={() => onNavigate('scan')}><ImagePlus size={17} /> {t('newInspection', lang)}</button>}
+        action={<button className="button primary pill-cta" onClick={() => onNavigate('scan')}><ImagePlus size={16} /> <span>{t('newInspection', lang)}</span> <ArrowUpRight size={15} /></button>}
       />
       <section className="panel history-panel">
         <div className="filter-bar">
           <div className="search-field">
-            <Search size={17} />
+            <Search size={16} />
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('searchPlaceholder', lang)} />
           </div>
           <div className="filter-tabs">
@@ -1448,7 +1479,7 @@ function HistoryView({ inspections, user, onOpen, onNavigate, lang }) {
             </div>
           )}
         </div>
-        <InspectionTable inspections={filtered} onOpen={onOpen} showInspector={isUserAdmin} lang={lang} />
+        <InspectionTable inspections={filtered} onOpen={onOpen} onNavigate={onNavigate} showInspector={isUserAdmin} lang={lang} />
       </section>
     </div>
   )
