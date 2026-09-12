@@ -9,7 +9,6 @@ import {
   Zap, FileCheck, Languages, Sparkles
 } from 'lucide-react'
 import { api, resolveApiUrl } from './api'
-import { demoStats, demoInspections } from './demoData'
 import { t } from './i18n'
 
 const NAV_DEFINITIONS = [
@@ -40,13 +39,23 @@ let activeInspectionProgress = { extract: 'pending', check: 'pending', decide: '
 
 function normalizeStats(stats = {}) {
   return {
-    total: stats.total ?? stats.total_inspections ?? stats.inspections_count ?? demoStats.total_inspections,
-    pass: stats.compliant ?? stats.passed ?? stats.pass_count ?? stats.compliant_count ?? demoStats.compliant,
-    fail: stats.non_compliant ?? stats.failed ?? stats.fail_count ?? stats.violations_count ?? demoStats.non_compliant,
-    review: stats.review ?? stats.review_count ?? demoStats.review,
-    rate: stats.compliance_rate ?? stats.compliance_rate_pct ?? stats.complianceRate ?? demoStats.compliance_rate,
-    alerts: stats.recent_alerts ?? stats.alerts ?? stats.total_violations_flagged ?? demoStats.recent_alerts
+    total: stats.total ?? stats.total_inspections ?? stats.inspections_count ?? 0,
+    pass: stats.compliant ?? stats.passed ?? stats.pass_count ?? stats.compliant_count ?? 0,
+    fail: stats.non_compliant ?? stats.failed ?? stats.fail_count ?? stats.violations_count ?? 0,
+    review: stats.review ?? stats.review_count ?? 0,
+    rate: stats.compliance_rate ?? stats.compliance_rate_pct ?? stats.complianceRate ?? 0,
+    alerts: stats.recent_alerts ?? stats.alerts ?? stats.total_violations_flagged ?? 0
   }
+}
+
+function computeStatsFromInspections(items = []) {
+  const total = items.length
+  const pass = items.filter((i) => (i.compliance?.status || '').toUpperCase() === 'PASS').length
+  const fail = items.filter((i) => (i.compliance?.status || '').toUpperCase() === 'FAIL').length
+  const review = items.filter((i) => (i.compliance?.status || '').toUpperCase() === 'REVIEW').length
+  const rate = total > 0 ? (pass / total) * 100 : 0
+  const alerts = items.reduce((sum, i) => sum + (i.compliance?.violations?.length || 0), 0)
+  return { total, pass, fail, review, rate, alerts }
 }
 
 function formatDate(value, lang = 'en') {
@@ -82,20 +91,7 @@ function percentage(value, fallback = null) {
 }
 
 function inspectionOwnerId(user) {
-  return user?.id || user?.user_id || user?.email || 'demo-user'
-}
-
-function createDemoInspection({ file, productName, category, user }) {
-  const imageUrl = URL.createObjectURL(file)
-  const sample = demoInspections.find((inspection) => inspection.compliance?.status === 'FAIL') || demoInspections[0]
-  return {
-    ...sample,
-    inspection_id: `SYN-${Date.now().toString().slice(-6)}`,
-    user_id: inspectionOwnerId(user),
-    created_at: new Date().toISOString(),
-    image_url: imageUrl,
-    product: { name: productName || sample.product?.name, category: category || sample.product?.category }
-  }
+  return user?.id || user?.user_id || user?.email || 'officer'
 }
 
 function asRule(item) {
@@ -163,14 +159,14 @@ function inspectionScore(inspection, rules) {
   const direct = percentage(value)
   if (direct != null) return direct
   const total = rules.obeyed.length + rules.notObeyed.length + rules.review.length
-  return total ? Math.round((rules.obeyed.length / total) * 100) : 75
+  return total ? Math.round((rules.obeyed.length / total) * 100) : 0
 }
 
 function inspectionConfidence(inspection) {
   const direct = percentage(inspection?.compliance?.confidence ?? inspection?.confidence ?? inspection?.confidence_percentage)
   if (direct != null) return direct
   const values = (inspection?.ocr_raw?.texts || []).map((item) => Number(item.confidence)).filter(Number.isFinite)
-  return values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) : 92
+  return values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) : 0
 }
 
 function StatusBadge({ status, lang = 'en' }) {
@@ -518,13 +514,20 @@ function App() {
   const [theme, setTheme] = useState(() => window.localStorage.getItem('synaptix_theme') || 'light')
   const [lang, setLangState] = useState(() => window.localStorage.getItem('synaptix_lang') || 'en')
   const [authenticated, setAuthenticated] = useState(() => window.localStorage.getItem('synaptix_authenticated') === 'true')
-  const [user, setUser] = useState(() => JSON.parse(window.localStorage.getItem('synaptix_user') || '{"full_name":"Riya Kapoor","role":"user"}'))
+  const [user, setUser] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('synaptix_user')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
   const [activeView, setActiveView] = useState('dashboard')
   const [selectedId, setSelectedId] = useState(null)
   const [scanResult, setScanResult] = useState(null)
-  const [stats, setStats] = useState(normalizeStats())
-  const [inspections, setInspections] = useState(demoInspections)
-  const [isDemo, setIsDemo] = useState(true)
+  const [stats, setStats] = useState({ total: 0, pass: 0, fail: 0, review: 0, rate: 0, alerts: 0 })
+  const [inspections, setInspections] = useState([])
+  const [apiConnected, setApiConnected] = useState(false)
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -560,20 +563,44 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!authenticated) {
+      setLoading(false)
+      return undefined
+    }
+
     let mounted = true
-    Promise.all([api.getDashboardStats(), api.getInspections({ limit: 50 })])
-      .then(([remoteStats, remoteInspections]) => {
+    setLoading(true)
+
+    api.getInspections({ limit: 50 })
+      .then(async (remoteInspections) => {
         if (!mounted) return
-        setStats(normalizeStats(remoteStats))
-        setInspections(remoteInspections.data || [])
-        setIsDemo(false)
+        const items = remoteInspections?.data || []
+        setInspections(items)
+        setApiConnected(true)
+        setNotice('')
+
+        if (isAdmin(user)) {
+          try {
+            const remoteStats = await api.getDashboardStats()
+            if (mounted) setStats(normalizeStats(remoteStats))
+          } catch {
+            if (mounted) setStats(computeStatsFromInspections(items))
+          }
+        } else {
+          setStats(computeStatsFromInspections(items))
+        }
       })
-      .catch(() => {
-        if (mounted) setNotice('API offline: showing sample inspection data. Set VITE_API_BASE_URL when connecting a deployed backend.')
+      .catch((err) => {
+        if (!mounted) return
+        setApiConnected(false)
+        setNotice(err.message || 'API connection failed.')
       })
-      .finally(() => mounted && setLoading(false))
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+
     return () => { mounted = false }
-  }, [])
+  }, [authenticated, user?.role])
 
   const selectedInspection = useMemo(() => inspections.find((item) => item.inspection_id === selectedId), [inspections, selectedId])
 
@@ -602,6 +629,9 @@ function App() {
 
   function signOut() {
     setAuthenticated(false)
+    setUser(null)
+    setInspections([])
+    setStats({ total: 0, pass: 0, fail: 0, review: 0, rate: 0, alerts: 0 })
     setAccountOpen(false)
     setSignOutOpen(false)
     window.localStorage.removeItem('synaptix_authenticated')
@@ -727,7 +757,7 @@ function App() {
               <button type="button" className={lang === 'hi' ? 'active' : ''} onClick={() => setLang('hi')}>हिं</button>
               <button type="button" className={lang === 'mr' ? 'active' : ''} onClick={() => setLang('mr')}>म</button>
             </div>
-            <span className={`connection-dot ${isDemo ? 'offline' : ''}`}><Activity size={14} /> {isDemo ? 'Demo mode' : 'API connected'}</span>
+            <span className={`connection-dot ${apiConnected ? '' : 'offline'}`}><Activity size={14} /> {apiConnected ? 'API connected' : 'Offline'}</span>
             <ThemeToggle theme={theme} onToggle={toggleTheme} compact />
             <button className="icon-button" aria-label="Notifications"><Bell size={18} /><i /></button>
           </div>
@@ -787,7 +817,7 @@ function ConfirmModal({ onCancel, onConfirm, lang }) {
 }
 
 function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang }) {
-  const firstName = (user?.full_name || 'Riya').split(' ')[0]
+  const firstName = (user?.full_name || '').trim().split(' ')[0] || (isAdmin(user) ? 'Admin' : 'Inspector')
   const todayStr = new Intl.DateTimeFormat(lang === 'hi' ? 'hi-IN' : lang === 'mr' ? 'mr-IN' : 'en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
   return (
     <div className="page">
@@ -939,21 +969,27 @@ function AnalyticsView({ stats, inspections = [], lang }) {
             <span className="chart-total">{stats.fail} total violations</span>
           </div>
           <div className="violation-bars">
-            {violationStats.map(([ruleName, count]) => {
-              const maxViolations = Math.max(...violationStats.map(([, c]) => c), 1)
-              const pct = Math.round((count / maxViolations) * 100)
-              return (
-                <div className="violation-bar-row" key={ruleName}>
-                  <div className="violation-bar-meta">
-                    <strong>{ruleName}</strong>
-                    <span>{count} infractions</span>
+            {stats.fail === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+                <p style={{ margin: 0, fontSize: '11px' }}>No statutory infractions flagged in the workspace.</p>
+              </div>
+            ) : (
+              violationStats.map(([ruleName, count]) => {
+                const maxViolations = Math.max(...violationStats.map(([, c]) => c), 1)
+                const pct = Math.round((count / maxViolations) * 100)
+                return (
+                  <div className="violation-bar-row" key={ruleName}>
+                    <div className="violation-bar-meta">
+                      <strong>{ruleName}</strong>
+                      <span>{count} infractions</span>
+                    </div>
+                    <div className="violation-bar-track">
+                      <div className="violation-bar-fill" style={{ width: `${Math.max(6, pct)}%` }} />
+                    </div>
                   </div>
-                  <div className="violation-bar-track">
-                    <div className="violation-bar-fill" style={{ width: `${Math.max(6, pct)}%` }} />
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </div>
         </section>
 
@@ -1000,30 +1036,36 @@ function AnalyticsView({ stats, inspections = [], lang }) {
           <span className="chart-total">{inspections.length} recorded items</span>
         </div>
         <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Inspection ID</th>
-                <th>Product</th>
-                <th>Category</th>
-                <th>Inspector</th>
-                <th>Compliance Status</th>
-                <th>Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inspections.slice(0, 15).map((item) => (
-                <tr key={item.inspection_id}>
-                  <td><strong>{item.inspection_id}</strong></td>
-                  <td><strong>{item.product?.name || 'Unnamed product'}</strong></td>
-                  <td>{item.product?.category || 'Packaged Commodity'}</td>
-                  <td><span className="inspector-tag">{item.user_id || 'Officer-Central'}</span></td>
-                  <td><StatusBadge status={item.compliance?.status} lang={lang} /></td>
-                  <td><span className="date-cell">{formatDate(item.created_at, lang)}</span></td>
+          {inspections.length === 0 ? (
+            <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+              <p style={{ margin: 0, fontSize: '11px' }}>No inspections recorded yet in the registry.</p>
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Inspection ID</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Inspector</th>
+                  <th>Compliance Status</th>
+                  <th>Date</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {inspections.slice(0, 15).map((item) => (
+                  <tr key={item.inspection_id}>
+                    <td><strong>{item.inspection_id}</strong></td>
+                    <td><strong>{item.product?.name || 'Unnamed product'}</strong></td>
+                    <td>{item.product?.category || 'Packaged Commodity'}</td>
+                    <td><span className="inspector-tag">{item.user_id || 'Officer-Central'}</span></td>
+                    <td><StatusBadge status={item.compliance?.status} lang={lang} /></td>
+                    <td><span className="date-cell">{formatDate(item.created_at, lang)}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </section>
     </div>
@@ -1223,16 +1265,14 @@ function Scan({ onComplete, onCancel, user, lang }) {
       if (!extracted || !checked || !decided) throw new Error('The inspection response did not include all processing stages.')
       onComplete(result)
     } catch (caught) {
-      if (/Failed to fetch|NetworkError|500|502|503|404/i.test(caught.message || '')) {
-        const demoResult = createDemoInspection({ file, productName, category, user })
-        activeInspectionProgress = { extract: 'completed', check: 'completed', decide: 'completed', message: 'Demo inspection complete' }
-        setProgress(activeInspectionProgress)
-        onComplete(demoResult)
-        return
-      }
-      setError(caught.message || 'Inspection failed.')
+      const errorMessage = caught.message || 'Inspection failed.'
+      setError(errorMessage)
       setProgress((current) => {
-        const failedProgress = { ...current, [current.extract === 'processing' ? 'extract' : current.check === 'processing' ? 'check' : 'decide']: 'failed', message: caught.message || 'Inspection failed.' }
+        const failedProgress = {
+          ...current,
+          [current.extract === 'processing' ? 'extract' : current.check === 'processing' ? 'check' : 'decide']: 'failed',
+          message: errorMessage
+        }
         activeInspectionProgress = failedProgress
         return failedProgress
       })
