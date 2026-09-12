@@ -7,7 +7,7 @@
     { "field": "net_quantity", "label": "Net Quantity", "required": true, "format_hint": "number + unit (g/kg/ml/l/N)" },
     { "field": "manufacture_date", "label": "Month & Year of Manufacture", "required": true, "format_hint": "MM/YYYY" },
     { "field": "mrp", "label": "Maximum Retail Price (inclusive of all taxes)", "required": true, "format_hint": "₹ amount" },
-    { "field": "unit_sale_price", "label": "Unit Sale Price (USP)", "required": true, "format_hint": "₹ amount / unit (e.g. ₹ 0.50/g, ₹ 120/kg)" },
+    { "field": "unit_sale_price", "label": "Unit Sale Price (USP)", "required": true, "format_hint": "₹ amount / unit (e.g. ₹ 16.00/100ml, ₹ 80/L for beverages; ₹ 0.28/g, ₹ 120/kg for solids)" },
     { "field": "consumer_care", "label": "Consumer Care details (name/address/phone/email)", "required": true }
   ]
 }

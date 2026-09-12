@@ -3,10 +3,22 @@ services:
     name: synaptix-backend
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1 --limit-concurrency 10
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # Limit Linux glibc memory arena allocation to prevent memory fragmentation on Render (512MB limit)
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      # Prevent linear algebra and ONNX threads from allocating redundant memory pools
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"
+      - key: NUMEXPR_NUM_THREADS
+        value: "1"
       - key: CORS_ORIGINS
         value: "http://localhost:5173"
       - key: CORS_ORIGIN_REGEX

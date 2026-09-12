@@ -45,7 +45,7 @@ _MRP_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _USP_PATTERN = re.compile(
-    r"(?:₹|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?\s*(?:/|per)\s*(?:g|gm|grams?|kg|kilogram|ml|millilitre|l|litre|liter|ltr|piece|unit|count|item|number|n)\b",
+    r"(?:₹|rs\.?|inr)?\s*\d+(?:\.\d{1,2})?\s*(?:/|per)\s*(?:100\s*(?:ml|millilitre|g|gm|grams?)|g|gm|grams?|kg|kilogram|ml|millilitre|l|litre|liter|ltr|piece|unit|count|item|number|n)\b",
     re.IGNORECASE,
 )
 _PHONE_PATTERN = re.compile(r"(\+?[\d][\d\s\-]{8,}\d)")
@@ -240,20 +240,76 @@ def _r6_08(fields: MandatoryFields) -> RuleResult:
     return _pass("R6-08", name, ref, f"MRP declared: {val}")
 
 
-def _r6_09(fields: MandatoryFields) -> RuleResult:
-    """R6-09 Unit sale price — Rule 6(11) as amended 2022."""
+def _r6_09(fields: MandatoryFields, category: Optional[str] = None) -> RuleResult:
+    """R6-09 Unit sale price — Rule 6(11) as amended 2021/2022."""
     name = "Unit Sale Price (USP)"
     ref = "Rule 6(11)"
-    val = _val(fields.unit_sale_price)
-    if not val:
-        return _fail("R6-09", name, ref, "Unit Sale Price (USP) not declared. Must state price per standard unit (e.g. ₹/g, ₹/ml, ₹/kg).")
-    if not _USP_PATTERN.search(val):
-        return _fail("R6-09", name, ref, f"USP format invalid: '{val}'. Required: ₹ [amount] / [unit] (e.g. ₹ 0.28/g, ₹ 120/kg).")
-    # Check decimal places (must be rounded to nearest 2)
-    decimal_match = re.search(r"\d+\.(\d+)", val)
-    if decimal_match and len(decimal_match.group(1)) > 2:
-        return _review("R6-09", name, ref, f"USP '{val}' has more than 2 decimal places — must be rounded to nearest 2 decimal places.")
-    return _pass("R6-09", name, ref, f"Unit Sale Price declared: {val}")
+    raw_val = _val(fields.unit_sale_price)
+
+    # Check if this was an auto-calculated suggestion
+    is_calculated = bool(re.search(r"\(calculated\)", raw_val, re.IGNORECASE))
+    val = re.sub(r"\(calculated\)", "", raw_val, flags=re.IGNORECASE).strip()
+
+    # Determine if product is liquid / beverage
+    is_liquid = False
+    net_q = _val(fields.net_quantity).lower()
+    if any(u in net_q for u in ["ml", "millilitre", "l", "litre", "ltr"]) or (category and "beverage" in category.lower()):
+        is_liquid = True
+
+    # 1. If explicitly declared on packaging (and not auto-calculated)
+    if val and not is_calculated:
+        if not _USP_PATTERN.search(val):
+            return _fail(
+                "R6-09",
+                name,
+                ref,
+                f"USP format invalid: '{val}'. Required: ₹ [amount] / [unit] (e.g. ₹ 16.00/100ml, ₹ 80/L for beverages; ₹ 0.28/g, ₹ 120/kg for solids)."
+            )
+        # Check decimal places (must be rounded to nearest 2)
+        decimal_match = re.search(r"\d+\.(\d+)", val)
+        if decimal_match and len(decimal_match.group(1)) > 2:
+            return _review(
+                "R6-09",
+                name,
+                ref,
+                f"USP '{val}' has more than 2 decimal places — must be rounded to nearest 2 decimal places under Rule 6(11)."
+            )
+        return _pass("R6-09", name, ref, f"Unit Sale Price declared: {val}")
+
+    # 2. Derive statutory suggested USP from MRP and Net Quantity under Rule 6(11)
+    from ocr.field_extractor import LegalFieldExtractor
+    suggested = LegalFieldExtractor.calculate_suggested_usp(fields.mrp, fields.net_quantity, category)
+    suggested_str = ""
+    if suggested:
+        if is_liquid:
+            suggested_str = f"{suggested['primary']} (or {suggested.get('secondary', '')})"
+        else:
+            suggested_str = suggested["primary"]
+
+    # 3. If auto-calculated value was passed
+    if is_calculated:
+        return _review(
+            "R6-09",
+            name,
+            ref,
+            f"USP not printed on beverage label. Auto-calculated statutory expectation under Rule 6(11): {val}. Verify packaging to confirm whether physical declaration was omitted."
+        )
+
+    # 4. Value is missing on packaging
+    if suggested_str:
+        return _review(
+            "R6-09",
+            name,
+            ref,
+            f"Unit Sale Price (USP) missing on packaging label. Statutory expectation under Rule 6(11): {suggested_str} — verify if product qualifies for exemption or requires non-compliance notice."
+        )
+
+    return _fail(
+        "R6-09",
+        name,
+        ref,
+        "Unit Sale Price (USP) not declared. Rule 6(11) requires ₹ per 100ml / L for beverages and liquids, or ₹ per 100g / kg for solid commodities."
+    )
 
 
 def _r6_10(fields: MandatoryFields) -> RuleResult:
@@ -498,7 +554,7 @@ class RuleEngine:
             _r6_06(fields),
             _r6_07(fields),
             _r6_08(fields),
-            _r6_09(fields),
+            _r6_09(fields, category),
             _r6_10(fields),
             _r6_11(fields),
             _r6_12(fields),

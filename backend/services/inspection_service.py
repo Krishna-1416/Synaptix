@@ -1,3 +1,4 @@
+import gc
 import uuid
 import asyncio
 import logging
@@ -22,6 +23,9 @@ logger = logging.getLogger("synaptix.inspection_service")
 # In-memory storage cache as fallback when DB is offline or table not yet initialized
 _MEMORY_INSPECTIONS: Dict[str, Dict[str, Any]] = {}
 
+# Concurrency throttle to prevent parallel heavy OCR/CV pipelines from exceeding 512MB RAM on Render
+_INSPECTION_SEMAPHORE = asyncio.Semaphore(1)
+
 
 def _database_inspector_id(inspector_id: Optional[str]) -> Optional[str]:
     """Only send UUID-shaped auth identities to Supabase UUID columns."""
@@ -35,19 +39,24 @@ def _database_inspector_id(inspector_id: Optional[str]) -> Optional[str]:
 
 
 def _run_cv_preprocess(image_bytes: bytes) -> bytes:
-    """Validate image bytes and deskew using the cv/ module."""
+    """Validate image bytes, downscale if needed (preventing OOM), and deskew."""
     from ocr.preprocess_handoff import PreprocessHandoff
-    PreprocessHandoff.load_and_validate(image_bytes)
     try:
         import cv2
         from cv.deskew import deskew_image
 
-        corrected, angle = deskew_image(image_bytes)
+        # load_and_validate enforces resolution clamping (TARGET_MAX_DIMENSION = 1600)
+        validated_rgb = PreprocessHandoff.load_and_validate(image_bytes)
+        corrected, angle = deskew_image(validated_rgb)
         if angle is not None and abs(angle) > 0.3:
             logger.info(f"CV deskew applied rotation: {angle:.2f}°")
-            success, encoded = cv2.imencode(".png", corrected)
+            success, encoded = cv2.imencode(".png", cv2.cvtColor(corrected, cv2.COLOR_RGB2BGR))
             if success:
                 return encoded.tobytes()
+
+        success, encoded = cv2.imencode(".png", cv2.cvtColor(validated_rgb, cv2.COLOR_RGB2BGR))
+        if success:
+            return encoded.tobytes()
         return image_bytes
     except Exception as e:
         logger.warning(f"CV deskew preprocessing fallback used: {e}")
@@ -74,6 +83,17 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
         ]
         raw_ocr = OCRRaw(texts=ocr_items)
 
+        # If USP is missing from physical packaging, auto-calculate statutory recommendation
+        usp_val = ocr_result.fields.unit_sale_price
+        if not usp_val and ocr_result.fields.mrp and ocr_result.fields.net_quantity:
+            from ocr.field_extractor import LegalFieldExtractor
+            suggested = LegalFieldExtractor.calculate_suggested_usp(
+                ocr_result.fields.mrp,
+                ocr_result.fields.net_quantity
+            )
+            if suggested and suggested.get("primary"):
+                usp_val = f"{suggested['primary']} (Calculated)"
+
         # Map LegalMetrologyFields to MandatoryFields (all Rule 6 declarations)
         fields = MandatoryFields(
             manufacturer=ocr_result.fields.manufacturer,
@@ -82,7 +102,7 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
             net_quantity=ocr_result.fields.net_quantity,
             manufacture_date=ocr_result.fields.manufacture_date,
             mrp=ocr_result.fields.mrp,
-            unit_sale_price=ocr_result.fields.unit_sale_price,
+            unit_sale_price=usp_val,
             consumer_care=ocr_result.fields.consumer_care,
         )
         return raw_ocr, fields
@@ -200,61 +220,68 @@ class InspectionService:
         5. Legal Metrology Rules Validation
         6. Database Record Persistence
         """
-        inspection_id = f"INS-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+        async with _INSPECTION_SEMAPHORE:
+            inspection_id = f"INS-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
-        # 1. Image upload to storage
-        image_id, image_url = await upload_label_image(file_bytes, filename)
+            # 1. Image upload to storage
+            image_id, image_url = await upload_label_image(file_bytes, filename)
 
-        # 2. CV Preprocessing (delegated to worker thread)
-        preprocessed_bytes = await asyncio.to_thread(_run_cv_preprocess, file_bytes)
+            # 2. CV Preprocessing (delegated to worker thread)
+            preprocessed_bytes = await asyncio.to_thread(_run_cv_preprocess, file_bytes)
 
-        # 3. OCR & Field mapping (delegated to worker thread)
-        ocr_raw, fields = await asyncio.to_thread(_run_ocr_pipeline, preprocessed_bytes, filename)
+            # 3. OCR & Field mapping (delegated to worker thread)
+            ocr_raw, fields = await asyncio.to_thread(_run_ocr_pipeline, preprocessed_bytes, filename)
 
-        # 4. CV Visual checks & bounding box overlay (delegated to worker thread)
-        visual_checks, overlay_bytes = await asyncio.to_thread(_run_cv_visual_checks, preprocessed_bytes)
+            # 4. CV Visual checks & bounding box overlay (delegated to worker thread)
+            visual_checks, overlay_bytes = await asyncio.to_thread(_run_cv_visual_checks, preprocessed_bytes)
 
-        # 4b. Upload overlay image to storage if rendered
-        annotated_image_url = None
-        if overlay_bytes:
-            try:
-                clean_name = f"annotated_{filename.rsplit('.', 1)[0]}.jpg"
-                _, annotated_image_url = await upload_label_image(overlay_bytes, clean_name)
-                visual_checks.overlay_image = annotated_image_url
-            except Exception as e:
-                logger.warning(f"Failed to upload annotated overlay image ({e}).")
+            # 4b. Upload overlay image to storage if rendered
+            annotated_image_url = None
+            if overlay_bytes:
+                try:
+                    clean_name = f"annotated_{filename.rsplit('.', 1)[0]}.jpg"
+                    _, annotated_image_url = await upload_label_image(overlay_bytes, clean_name)
+                    visual_checks.overlay_image = annotated_image_url
+                except Exception as e:
+                    logger.warning(f"Failed to upload annotated overlay image ({e}).")
 
-        # 5. Rule Engine evaluation — pass OCR confidences and category for richer scoring
-        ocr_confidences = [item.confidence for item in ocr_raw.texts if item.confidence > 0]
-        compliance = evaluate_compliance(
-            fields.model_dump(),
-            visual_checks.model_dump(),
-            ocr_confidences=ocr_confidences,
-            product_category=product_category,
-        )
+            # 5. Rule Engine evaluation — pass OCR confidences and category for richer scoring
+            ocr_confidences = [item.confidence for item in ocr_raw.texts if item.confidence > 0]
+            compliance = evaluate_compliance(
+                fields.model_dump(),
+                visual_checks.model_dump(),
+                ocr_confidences=ocr_confidences,
+                product_category=product_category,
+            )
 
-        # Construct InspectionResult (matching shared/schemas/inspection_schema.json)
-        result = InspectionResult(
-            inspection_id=inspection_id,
-            image_id=image_id,
-            image_url=image_url,
-            annotated_image_url=annotated_image_url,
-            product=ProductInfo(
-                name=product_name or filename.rsplit('.', 1)[0].replace('_', ' ').title(),
-                category=product_category
-            ),
-            ocr_raw=ocr_raw,
-            fields=fields,
-            visual_checks=visual_checks,
-            compliance=compliance,
-            created_at=datetime.now(timezone.utc).isoformat(),
-            user_id=inspector_id
-        )
+            # Construct InspectionResult (matching shared/schemas/inspection_schema.json)
+            result = InspectionResult(
+                inspection_id=inspection_id,
+                image_id=image_id,
+                image_url=image_url,
+                annotated_image_url=annotated_image_url,
+                product=ProductInfo(
+                    name=product_name or filename.rsplit('.', 1)[0].replace('_', ' ').title(),
+                    category=product_category
+                ),
+                ocr_raw=ocr_raw,
+                fields=fields,
+                visual_checks=visual_checks,
+                compliance=compliance,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                user_id=inspector_id
+            )
 
-        # 6. Database Persistence
-        await InspectionService.save_inspection(result, inspector_id)
+            # 6. Database Persistence
+            await InspectionService.save_inspection(result, inspector_id)
 
-        return result
+            # Reclaim intermediate NumPy and OpenCV buffers immediately
+            del preprocessed_bytes
+            if overlay_bytes:
+                del overlay_bytes
+            gc.collect()
+
+            return result
 
     @staticmethod
     async def save_inspection(inspection: InspectionResult, inspector_id: Optional[str] = None) -> bool:
@@ -506,7 +533,11 @@ class InspectionService:
     @staticmethod
     async def get_dashboard_metrics(
         requester_id: Optional[str] = None,
+<<<<<<< HEAD
         is_admin: bool = False,
+=======
+        is_admin: bool = False
+>>>>>>> origin/main
     ) -> Dict[str, Any]:
         """Aggregate stats for inspector analytics dashboard."""
         list_res = await InspectionService.list_inspections(
