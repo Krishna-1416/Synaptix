@@ -985,20 +985,6 @@ function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang
           </section>
         </div>
       )}
-      <section className="insight-strip">
-        <div className="insight-icon-halo">
-          <Activity size={18} />
-          <span className="live-pulse" />
-        </div>
-        <div className="insight-copy">
-          <strong>{t('rule6Active', lang)}</strong>
-          <span>{t('rule6Desc', lang)}</span>
-        </div>
-        <button className="button secondary pill-cta-sm" onClick={() => onNavigate(isAdmin(user) ? 'documentation' : 'enforcement')}>
-          <span>{t('systemHealth', lang)}</span>
-          <ArrowUpRight size={14} />
-        </button>
-      </section>
     </div>
   )
 }
