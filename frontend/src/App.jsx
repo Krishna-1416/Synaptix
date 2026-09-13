@@ -112,13 +112,64 @@ function greetingKey() {
   return 'goodEvening'
 }
 
+function decodeJwtUser(token) {
+  if (!token || typeof token !== 'string') return null
+  try {
+    const parts = token.split('.')
+    if (parts.length < 2) return null
+    const base64Url = parts[1]
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+    const payload = JSON.parse(jsonPayload)
+    if (!payload?.sub && !payload?.email) return null
+    const meta = payload.user_metadata || {}
+    const role = meta.role || 'inspector'
+    const name = meta.full_name || meta.name || payload.email?.split('@')[0] || 'Inspector'
+    return {
+      id: payload.sub,
+      email: payload.email,
+      full_name: name,
+      role: ['admin', 'administrator'].includes(role) ? 'admin' : 'inspector',
+      avatar_url: meta.avatar_url || meta.picture || '',
+    }
+  } catch {
+    return null
+  }
+}
+
 function consumeOAuthAccessToken() {
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-  const accessToken = hash.get('access_token')
-  if (!accessToken) return null
-  window.localStorage.setItem('synaptix_access_token', accessToken)
-  window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)
-  return accessToken
+  const search = new URLSearchParams(window.location.search)
+
+  // 1. Capture OAuth errors from Google/Supabase
+  const error = hash.get('error_description') || hash.get('error') || search.get('error_description') || search.get('error')
+  if (error) {
+    console.error('OAuth error:', error)
+    window.history.replaceState({}, document.title, window.location.pathname)
+    return { error }
+  }
+
+  // 2. Capture access token from hash or query
+  const accessToken = hash.get('access_token') || search.get('access_token')
+  if (accessToken) {
+    window.localStorage.setItem('synaptix_access_token', accessToken)
+    window.history.replaceState({}, document.title, window.location.pathname)
+    return { accessToken }
+  }
+
+  // 3. Capture PKCE authorization code from query
+  const code = search.get('code')
+  if (code) {
+    window.history.replaceState({}, document.title, window.location.pathname)
+    return { code }
+  }
+
+  return null
 }
 
 function percentage(value, fallback = null) {
@@ -501,7 +552,7 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
     setBusy(true)
     setError('')
     try {
-      const result = await api.startGoogleLogin()
+      const result = await api.startGoogleLogin(window.location.origin)
       window.location.assign(result.url)
     } catch (caught) {
       setError(caught.message || 'Google authentication is unavailable.')
@@ -641,15 +692,52 @@ function App() {
   }
 
   useEffect(() => {
-    consumeOAuthAccessToken()
+    const oauth = consumeOAuthAccessToken()
+    if (oauth?.error) {
+      setNotice(`Authentication note: ${oauth.error}`)
+    }
+
+    if (oauth?.code) {
+      setLoading(true)
+      api.exchangeCode(oauth.code)
+        .then((res) => {
+          if (res?.access_token) {
+            window.localStorage.setItem('synaptix_access_token', res.access_token)
+            handleAuthenticated(res.user)
+          }
+        })
+        .catch((err) => {
+          setNotice(err.message || 'OAuth exchange failed.')
+        })
+        .finally(() => {
+          setLoading(false)
+        })
+      return undefined
+    }
+
     const token = window.localStorage.getItem('synaptix_access_token')
     if (!token) return undefined
+
+    // Decode JWT token immediately so user transitions to dashboard without lag or loop
+    const decodedUser = decodeJwtUser(token)
+    if (decodedUser) {
+      handleAuthenticated(decodedUser)
+    }
+
+    // Refresh and sync user profile from backend in the background
     let mounted = true
-    api.getCurrentUser().then((currentUser) => {
-      if (mounted) handleAuthenticated(currentUser)
-    }).catch(() => {
-      window.localStorage.removeItem('synaptix_access_token')
-    })
+    api.getCurrentUser()
+      .then((currentUser) => {
+        if (mounted) handleAuthenticated(currentUser)
+      })
+      .catch((err) => {
+        console.warn('Backend profile verification note:', err)
+        if (!decodedUser) {
+          window.localStorage.removeItem('synaptix_access_token')
+          if (mounted) setAuthenticated(false)
+        }
+      })
+
     return () => { mounted = false }
   }, [])
 

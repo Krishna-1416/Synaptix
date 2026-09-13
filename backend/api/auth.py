@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from backend.models.auth import SignUpRequest, LoginRequest, AuthResponse, UserProfile
@@ -300,18 +301,53 @@ async def login_user(payload: LoginRequest):
 
 
 @router.get("/google", summary="Start Supabase Google OAuth")
-async def google_login():
+async def google_login(redirect_to: Optional[str] = None):
     client = get_supabase_client()
     if not client:
         raise HTTPException(status_code=503, detail="Supabase authentication is not configured.")
+    target_url = redirect_to or settings.FRONTEND_URL
     try:
         result = client.auth.sign_in_with_oauth({
             "provider": "google",
-            "options": {"redirect_to": settings.FRONTEND_URL},
+            "options": {"redirect_to": target_url},
         })
         return {"url": result.url}
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"Unable to start Google authentication: {error}")
+
+
+@router.get("/exchange", summary="Exchange Supabase OAuth code for access token")
+async def exchange_code(code: str):
+    client = get_supabase_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Supabase authentication is not configured.")
+    try:
+        res = client.auth.exchange_code_for_session({"auth_code": code})
+        if not res.session:
+            raise HTTPException(status_code=400, detail="Failed to exchange OAuth code.")
+        user = res.user
+        meta = user.user_metadata or {}
+        role = meta.get("role", "inspector")
+        admin_client = get_supabase_admin_client()
+        if admin_client:
+            try:
+                profile = admin_client.table("profiles").select("full_name,role").eq("id", user.id).maybe_single().execute()
+                if profile.data:
+                    meta = {**meta, **profile.data}
+                    role = profile.data.get("role", role)
+            except Exception:
+                pass
+        return {
+            "access_token": res.session.access_token,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "full_name": meta.get("full_name") or meta.get("name") or (user.email.split("@")[0] if user.email else "Inspector"),
+                "role": role if role in {"admin", "inspector", "user"} else "inspector"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"OAuth code exchange failed: {e}")
 
 
 @router.get(

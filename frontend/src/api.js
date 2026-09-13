@@ -35,7 +35,11 @@ export const api = {
     body: JSON.stringify({ email, password, full_name: fullName, role })
   })).json(),
   getCurrentUser: async () => (await request('/api/auth/me')).json(),
-  startGoogleLogin: async () => (await request('/api/auth/google')).json(),
+  startGoogleLogin: async (redirectTo) => {
+    const query = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : ''
+    return (await request(`/api/auth/google${query}`)).json()
+  },
+  exchangeCode: async (code) => (await request(`/api/auth/exchange?code=${encodeURIComponent(code)}`)).json(),
   getDashboardStats: async () => (await request('/api/dashboard/stats')).json(),
   getInspections: async ({ page = 1, limit = 10, status = '', search = '', inspectorId = '' } = {}) => {
     const params = new URLSearchParams({ page, limit })
