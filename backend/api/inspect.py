@@ -6,6 +6,7 @@ from backend.services.inspection_service import InspectionService
 from backend.api.auth import require_auth
 
 router = APIRouter(prefix="", tags=["Inspection"])
+MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB production upload limit
 
 
 @router.post(
@@ -39,6 +40,11 @@ async def inspect_package_label(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Uploaded file is empty.",
+            )
+        if len(content) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Uploaded image exceeds the 15 MB size limit.",
             )
 
         result = await InspectionService.process_image_inspection(
