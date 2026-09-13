@@ -35,11 +35,22 @@ export const api = {
     body: JSON.stringify({ email, password, full_name: fullName, role })
   })).json(),
   getCurrentUser: async () => (await request('/api/auth/me')).json(),
-  startGoogleLogin: async (redirectTo) => {
-    const query = redirectTo ? `?redirect_to=${encodeURIComponent(redirectTo)}` : ''
+  startGoogleLogin: async (redirectTo, role) => {
+    const params = new URLSearchParams()
+    if (redirectTo) params.set('redirect_to', redirectTo)
+    if (role) params.set('role', role)
+    const query = params.toString() ? `?${params.toString()}` : ''
     return (await request(`/api/auth/google${query}`)).json()
   },
-  exchangeCode: async (code) => (await request(`/api/auth/exchange?code=${encodeURIComponent(code)}`)).json(),
+  exchangeCode: async (code, role) => {
+    const params = new URLSearchParams({ code })
+    if (role) params.set('role', role)
+    return (await request(`/api/auth/exchange?${params.toString()}`)).json()
+  },
+  updateRole: async (role) => (await request('/api/auth/role', {
+    method: 'POST',
+    body: JSON.stringify({ role })
+  })).json(),
   getDashboardStats: async () => (await request('/api/dashboard/stats')).json(),
   getInspections: async ({ page = 1, limit = 10, status = '', search = '', inspectorId = '' } = {}) => {
     const params = new URLSearchParams({ page, limit })

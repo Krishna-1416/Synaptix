@@ -27,3 +27,7 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
     user: Optional[UserProfile] = None
     message: Optional[str] = None
+
+
+class RoleUpdateRequest(BaseModel):
+    role: str

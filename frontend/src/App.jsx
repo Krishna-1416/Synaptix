@@ -146,30 +146,36 @@ function consumeOAuthAccessToken() {
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
   const search = new URLSearchParams(window.location.search)
 
-  // 1. Capture OAuth errors from Google/Supabase
+  // 1. Capture role preference from query, hash, or localStorage
+  const urlRole = hash.get('role') || search.get('role')
+  const savedRole = window.localStorage.getItem('synaptix_pending_role')
+  const selectedRole = urlRole || savedRole || null
+  if (savedRole) window.localStorage.removeItem('synaptix_pending_role')
+
+  // 2. Capture OAuth errors from Google/Supabase
   const error = hash.get('error_description') || hash.get('error') || search.get('error_description') || search.get('error')
   if (error) {
     console.error('OAuth error:', error)
     window.history.replaceState({}, document.title, window.location.pathname)
-    return { error }
+    return { error, role: selectedRole }
   }
 
-  // 2. Capture access token from hash or query
+  // 3. Capture access token from hash or query
   const accessToken = hash.get('access_token') || search.get('access_token')
   if (accessToken) {
     window.localStorage.setItem('synaptix_access_token', accessToken)
     window.history.replaceState({}, document.title, window.location.pathname)
-    return { accessToken }
+    return { accessToken, role: selectedRole }
   }
 
-  // 3. Capture PKCE authorization code from query
+  // 4. Capture PKCE authorization code from query
   const code = search.get('code')
   if (code) {
     window.history.replaceState({}, document.title, window.location.pathname)
-    return { code }
+    return { code, role: selectedRole }
   }
 
-  return null
+  return { role: selectedRole }
 }
 
 function percentage(value, fallback = null) {
@@ -552,7 +558,8 @@ function Auth({ onBack, onAuthenticated, theme, onToggleTheme, lang, setLang }) 
     setBusy(true)
     setError('')
     try {
-      const result = await api.startGoogleLogin(window.location.origin)
+      window.localStorage.setItem('synaptix_pending_role', role)
+      const result = await api.startGoogleLogin(window.location.origin, role)
       window.location.assign(result.url)
     } catch (caught) {
       setError(caught.message || 'Google authentication is unavailable.')
@@ -697,13 +704,19 @@ function App() {
       setNotice(`Authentication note: ${oauth.error}`)
     }
 
+    const pendingRole = oauth?.role || window.localStorage.getItem('synaptix_pending_role')
+    if (pendingRole) {
+      window.localStorage.removeItem('synaptix_pending_role')
+    }
+
     if (oauth?.code) {
       setLoading(true)
-      api.exchangeCode(oauth.code)
+      api.exchangeCode(oauth.code, pendingRole)
         .then((res) => {
           if (res?.access_token) {
             window.localStorage.setItem('synaptix_access_token', res.access_token)
-            handleAuthenticated(res.user)
+            const targetRole = pendingRole || res.user?.role
+            handleAuthenticated({ ...res.user, role: targetRole })
           }
         })
         .catch((err) => {
@@ -721,14 +734,21 @@ function App() {
     // Decode JWT token immediately so user transitions to dashboard without lag or loop
     const decodedUser = decodeJwtUser(token)
     if (decodedUser) {
-      handleAuthenticated(decodedUser)
+      const targetRole = pendingRole || decodedUser.role
+      handleAuthenticated({ ...decodedUser, role: targetRole })
+      if (pendingRole && pendingRole !== decodedUser.role) {
+        api.updateRole(pendingRole).catch((err) => console.warn('Role update sync note:', err))
+      }
     }
 
     // Refresh and sync user profile from backend in the background
     let mounted = true
     api.getCurrentUser()
       .then((currentUser) => {
-        if (mounted) handleAuthenticated(currentUser)
+        if (mounted) {
+          const finalRole = pendingRole || currentUser.role
+          handleAuthenticated({ ...currentUser, role: finalRole })
+        }
       })
       .catch((err) => {
         console.warn('Backend profile verification note:', err)

@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from backend.models.auth import SignUpRequest, LoginRequest, AuthResponse, UserProfile
+from backend.models.auth import SignUpRequest, LoginRequest, AuthResponse, UserProfile, RoleUpdateRequest
 from backend.services.supabase_client import get_supabase_client, get_supabase_admin_client
 from backend.config import settings
 
@@ -301,11 +301,14 @@ async def login_user(payload: LoginRequest):
 
 
 @router.get("/google", summary="Start Supabase Google OAuth")
-async def google_login(redirect_to: Optional[str] = None):
+async def google_login(redirect_to: Optional[str] = None, role: Optional[str] = None):
     client = get_supabase_client()
     if not client:
         raise HTTPException(status_code=503, detail="Supabase authentication is not configured.")
     target_url = redirect_to or settings.FRONTEND_URL
+    if role:
+        separator = "&" if "?" in target_url else "?"
+        target_url = f"{target_url}{separator}role={role}"
     try:
         result = client.auth.sign_in_with_oauth({
             "provider": "google",
@@ -317,7 +320,7 @@ async def google_login(redirect_to: Optional[str] = None):
 
 
 @router.get("/exchange", summary="Exchange Supabase OAuth code for access token")
-async def exchange_code(code: str):
+async def exchange_code(code: str, role: Optional[str] = None):
     client = get_supabase_client()
     admin_client = get_supabase_admin_client()
     active_client = client or admin_client
@@ -335,27 +338,61 @@ async def exchange_code(code: str):
             raise HTTPException(status_code=400, detail="Failed to exchange OAuth code.")
         user = res.user
         meta = user.user_metadata or {}
-        role = meta.get("role", "inspector")
-        admin_client = get_supabase_admin_client()
+        assigned_role = (role or "").strip().lower()
+        if assigned_role not in {"admin", "administrator", "inspector", "user"}:
+            assigned_role = meta.get("role", "inspector")
+        normalized_role = "admin" if assigned_role in {"admin", "administrator"} else "inspector"
+
+        clean_name = meta.get("full_name") or meta.get("name") or (user.email.split("@")[0] if user.email else "Inspector")
         if admin_client:
             try:
-                profile = admin_client.table("profiles").select("full_name,role").eq("id", user.id).maybe_single().execute()
-                if profile.data:
-                    meta = {**meta, **profile.data}
-                    role = profile.data.get("role", role)
-            except Exception:
-                pass
+                admin_client.table("profiles").upsert({
+                    "id": user.id,
+                    "full_name": clean_name,
+                    "role": normalized_role,
+                }).execute()
+                admin_client.auth.admin.update_user_by_id(user.id, {"user_metadata": {"role": normalized_role}})
+            except Exception as e:
+                logger.warning(f"Failed to upsert profile during OAuth exchange: {e}")
+
         return {
             "access_token": res.session.access_token,
             "user": {
                 "id": user.id,
                 "email": user.email,
-                "full_name": meta.get("full_name") or meta.get("name") or (user.email.split("@")[0] if user.email else "Inspector"),
-                "role": role if role in {"admin", "inspector", "user"} else "inspector"
+                "full_name": clean_name,
+                "role": normalized_role
             }
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"OAuth code exchange failed: {e}")
+
+
+@router.post(
+    "/role",
+    response_model=UserProfile,
+    summary="Update role of currently authenticated user",
+)
+async def update_user_role(payload: RoleUpdateRequest, user: UserProfile = Depends(require_auth)):
+    clean_role = payload.role.strip().lower()
+    target_role = "admin" if clean_role in {"admin", "administrator"} else "inspector"
+    admin = get_supabase_admin_client()
+    if admin:
+        try:
+            admin.table("profiles").upsert({
+                "id": user.id,
+                "full_name": user.full_name,
+                "role": target_role,
+            }).execute()
+            admin.auth.admin.update_user_by_id(user.id, {"user_metadata": {"role": target_role}})
+        except Exception as e:
+            logger.warning(f"Failed to update user role in DB: {e}")
+    return UserProfile(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=target_role
+    )
 
 
 @router.get(
