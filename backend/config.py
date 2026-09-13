@@ -18,11 +18,11 @@ class Settings:
     PROJECT_NAME: str = "Synaptix - SIH26034 Legal Metrology Inspector"
     API_V1_STR: str = "/api"
     
-    # Supabase credentials
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
-    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    # Supabase credentials (stripped to prevent accidental whitespace/quotes in PaaS environments)
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip().strip('"').strip("'")
+    SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "").strip().strip('"').strip("'")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip().strip('"').strip("'")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
     
     # Storage
     SUPABASE_BUCKET_NAME: str = "label-images"

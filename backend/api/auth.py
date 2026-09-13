@@ -319,10 +319,18 @@ async def google_login(redirect_to: Optional[str] = None):
 @router.get("/exchange", summary="Exchange Supabase OAuth code for access token")
 async def exchange_code(code: str):
     client = get_supabase_client()
-    if not client:
+    admin_client = get_supabase_admin_client()
+    active_client = client or admin_client
+    if not active_client:
         raise HTTPException(status_code=503, detail="Supabase authentication is not configured.")
     try:
-        res = client.auth.exchange_code_for_session({"auth_code": code})
+        try:
+            res = active_client.auth.exchange_code_for_session({"auth_code": code})
+        except Exception as primary_err:
+            if admin_client and admin_client != active_client:
+                res = admin_client.auth.exchange_code_for_session({"auth_code": code})
+            else:
+                raise primary_err
         if not res.session:
             raise HTTPException(status_code=400, detail="Failed to exchange OAuth code.")
         user = res.user
