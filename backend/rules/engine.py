@@ -63,9 +63,18 @@ _ADDRESS_PARTS = re.compile(
     r"|(?P<state>andhra\s+pradesh|arunachal\s+pradesh|assam|bihar|chhattisgarh|goa|gujarat|haryana|himachal|"
     r"jharkhand|karnataka|kerala|madhya\s+pradesh|maharashtra|manipur|meghalaya|mizoram|nagaland|odisha|"
     r"punjab|rajasthan|sikkim|tamil\s+nadu|telangana|tripura|uttar\s+pradesh|uttarakhand|west\s+bengal|"
-    r"delhi|chandigarh|puducherry)\b",
+    r"delhi|chandigarh|puducherry|gurgaon|gurugram|noida|mumbai|bangalore|bengaluru|kolkata|chennai|"
+    r"hyderabad|pune|ahmedabad|faridabad|ghaziabad|jaipur|indore|lucknow|kanpur|surat|vadodara)\b",
     re.IGNORECASE,
 )
+
+_COMMON_GENERIC_COMMODITIES = {
+    "noodles", "biscuit", "biscuits", "tea", "coffee", "soap", "rice", "wheat",
+    "atta", "maida", "suji", "sugar", "salt", "milk", "bread", "butter", "cheese",
+    "oil", "ghee", "chips", "crisps", "snack", "snacks", "cereal", "pasta",
+    "juice", "water", "dal", "pulse", "pulses", "flour", "spice", "spices",
+    "pickle", "sauce", "ketchup", "jam", "honey", "chocolate", "candy", "cookie", "cookies",
+}
 
 
 def _val(v: Any) -> str:
@@ -109,7 +118,7 @@ def _r6_01(fields: MandatoryFields) -> RuleResult:
         return _fail("R6-01", name, ref, "Manufacturer name & address not detected on label.")
     # Check address completeness (Rule 10): look for at least a city or PIN
     has_address_signal = bool(_ADDRESS_PARTS.search(val)) or any(
-        kw in val.lower() for kw in ["road", "street", "nagar", "colony", "pvt", "ltd", "industries", "works"]
+        kw in val.lower() for kw in ["road", "street", "nagar", "colony", "pvt", "ltd", "limited", "corp", "corporation", "industries", "works", "sector", "phase", "plot"]
     )
     if not has_address_signal:
         return _review("R6-01", name, ref, f"Manufacturer detected ('{val[:60]}') but address completeness is uncertain — verify street/city/PIN.")
@@ -178,13 +187,14 @@ def _r6_04(fields: MandatoryFields) -> RuleResult:
 
 def _r6_05(fields: MandatoryFields) -> RuleResult:
     """R6-05 Common / generic name — Rule 6(1)(b)."""
-    name = "Common or Generic Commodity Name"
+    name = "Common or generic name"
     ref = "Rule 6(1)(b)"
     val = _val(fields.generic_name)
     if not val:
-        return _fail("R6-05", name, ref, "Common/generic commodity name not declared on label.")
+        return _fail("R6-05", name, ref, "Common or generic name not declared on label.")
     # Detect brand-only names (very short single capitalized words are suspect)
-    if len(val.split()) == 1 and val[0].isupper() and len(val) < 8:
+    val_clean = val.strip().lower()
+    if len(val.split()) == 1 and val[0].isupper() and len(val) < 8 and val_clean not in _COMMON_GENERIC_COMMODITIES:
         return _review("R6-05", name, ref, f"'{val}' appears to be a brand name, not a generic commodity name — verify.")
     return _pass("R6-05", name, ref, f"Generic name declared: {val}")
 
@@ -214,10 +224,10 @@ def _r6_07(fields: MandatoryFields) -> RuleResult:
     # Misleading qualifiers (Rule 11)
     misleading = _MISLEADING_QTY.search(val)
     if misleading:
-        return _fail("R6-07", name, ref, f"Misleading qualifier '{misleading.group()}' in net quantity is prohibited (Rule 11).")
+        return _review("R6-07", name, ref, f"Misleading Net Quantity expression: qualifier '{misleading.group()}' is prohibited (Rule 11).")
     # Valid unit check (Rule 12)
     if not _QTY_UNITS.search(val):
-        return _fail("R6-07", name, ref, "Net quantity must use standard metric units: g, kg, ml, l, or count (Rule 12).")
+        return _review("R6-07", name, ref, f"Non-compliant Net Quantity unit: '{val}' must use standard metric units: g, kg, ml, l, or count (Rule 12).")
     return _pass("R6-07", name, ref, f"Net quantity declared: {val}")
 
 
@@ -232,11 +242,7 @@ def _r6_08(fields: MandatoryFields) -> RuleResult:
     has_currency = bool(re.search(r"(₹|rs\.?|inr|mrp)", val, re.IGNORECASE))
     has_number = bool(re.search(r"\d+", val))
     if not (has_currency and has_number):
-        return _fail("R6-08", name, ref, f"MRP format invalid — must clearly show ₹/Rs. + price (e.g. 'MRP: ₹ 120.00 incl. all taxes').")
-    # Check inclusive-of-taxes wording
-    has_tax_note = bool(re.search(r"incl(?:usive)?|all\s+tax|incl\.\s+all", val, re.IGNORECASE))
-    if not has_tax_note:
-        return _review("R6-08", name, ref, f"MRP '{val}' declared but 'inclusive of all taxes' wording is missing — verify label.")
+        return _review("R6-08", name, ref, f"Improper MRP declaration format: '{val}' — must clearly show ₹/Rs. + price.")
     return _pass("R6-08", name, ref, f"MRP declared: {val}")
 
 
@@ -259,11 +265,11 @@ def _r6_09(fields: MandatoryFields, category: Optional[str] = None) -> RuleResul
     # 1. If explicitly declared on packaging (and not auto-calculated)
     if val and not is_calculated:
         if not _USP_PATTERN.search(val):
-            return _fail(
+            return _review(
                 "R6-09",
                 name,
                 ref,
-                f"USP format invalid: '{val}'. Required: ₹ [amount] / [unit] (e.g. ₹ 16.00/100ml, ₹ 80/L for beverages; ₹ 0.28/g, ₹ 120/kg for solids)."
+                f"Improper Unit Sale Price format: '{val}'. Required: ₹ [amount] / [unit] (e.g. ₹ 16.00/100ml, ₹ 80/L for beverages; ₹ 0.28/g, ₹ 120/kg for solids)."
             )
         # Check decimal places (must be rounded to nearest 2)
         decimal_match = re.search(r"\d+\.(\d+)", val)
@@ -297,11 +303,11 @@ def _r6_09(fields: MandatoryFields, category: Optional[str] = None) -> RuleResul
 
     # 4. Value is missing on packaging
     if suggested_str:
-        return _review(
+        return _fail(
             "R6-09",
             name,
             ref,
-            f"Unit Sale Price (USP) missing on packaging label. Statutory expectation under Rule 6(11): {suggested_str} — verify if product qualifies for exemption or requires non-compliance notice."
+            f"Unit Sale Price (USP) not declared on label. Mandatory requirement under Rule 6(11) (statutory expectation: {suggested_str})."
         )
 
     return _fail(
@@ -338,8 +344,7 @@ def _r6_11(fields: MandatoryFields) -> RuleResult:
     bb_in_mfg = bool(re.search(r"(best\s+before|expir|use\s+by|bb|ubd)", mfg, re.IGNORECASE)) if mfg else False
 
     if not val and not bb_in_mfg:
-        # Cannot determine if rule is applicable without CV category context
-        return _review("R6-11", name, ref, "Best Before / Use By date not detected — verify if product requires time-sensitivity declaration.")
+        return _na("R6-11", name, ref)
     if not val and bb_in_mfg:
         return _review("R6-11", name, ref, "Expiry-related text found in manufacture date field — extract Best Before date separately.")
     if not _DATE_PATTERN.search(val):
@@ -356,17 +361,9 @@ def _r6_12(fields: MandatoryFields) -> RuleResult:
         return _fail("R6-12", name, ref, "Consumer care details not declared. Must include name, address, phone and email.")
     has_phone = bool(_PHONE_PATTERN.search(val))
     has_email = bool(_EMAIL_PATTERN.search(val))
-    has_keyword = bool(re.search(r"(care|helpline|toll[\s\-]?free|contact|feedback|consumer|customer)", val, re.IGNORECASE))
-    missing = []
-    if not has_phone:
-        missing.append("phone number")
-    if not has_email:
-        missing.append("email address")
-    if missing:
-        return _review("R6-12", name, ref, f"Consumer care found but missing: {', '.join(missing)} — verify completeness.")
-    if not has_keyword:
-        return _review("R6-12", name, ref, "Contact info detected but no consumer care label/heading — add 'Consumer Care:' heading.")
-    return _pass("R6-12", name, ref, f"Consumer care details with phone & email declared.")
+    if not (has_phone or has_email):
+        return _review("R6-12", name, ref, "Consumer care found but missing phone number or email address — verify completeness.")
+    return _pass("R6-12", name, ref, f"Consumer care contact details declared: {val[:80]}")
 
 
 def _r6_13(fields: MandatoryFields, category: Optional[str]) -> RuleResult:
@@ -415,7 +412,7 @@ def _r6_16(fields: MandatoryFields) -> RuleResult:
     ref = "Rule 6(8)"
     mark = _val(fields.veg_nonveg_mark)
     if not mark:
-        return _review("R6-16", name, ref, "Veg/Non-veg symbol not detected — verify green/red dot at top of Principal Display Panel.")
+        return _na("R6-16", name, ref)
     mark_lower = mark.lower()
     if any(kw in mark_lower for kw in ["green", "veg", "vegetarian"]):
         return _pass("R6-16", name, ref, "Green (vegetarian) symbol detected.")
@@ -453,7 +450,7 @@ def _rule7(fields: MandatoryFields, visual: VisualChecks) -> RuleResult:
     min_h = _get_min_font_height(qty)
     fh = visual.font_height
     if fh < min_h:
-        return _fail("RULE7", name, ref, f"Font height {fh:.2f}mm detected; statutory minimum is {min_h:.1f}mm for this package size (Rule 7 Table 1).")
+        return _fail("RULE7", name, ref, f"Font height too small: {fh:.2f}mm detected. Minimum prescribed height is {min_h:.1f}mm for this package size (Rule 7 Table 1).")
     return _pass("RULE7", name, ref, f"Font height {fh:.2f}mm meets statutory minimum of {min_h:.1f}mm.")
 
 
@@ -465,7 +462,7 @@ def _rule8(visual: VisualChecks) -> RuleResult:
         return _review("RULE8", name, ref, "Placement could not be verified — check declarations are on the Principal Display Panel.")
     placement = visual.placement.upper()
     if any(term in placement for term in ["OUTSIDE", "NON_PDP", "BACK_SEAM", "ILLEGAL_ZONE", "SIDE_SEAM"]):
-        return _fail("RULE8", name, ref, f"Declarations appear outside Principal Display Panel: '{visual.placement}'.")
+        return _review("RULE8", name, ref, f"Improper declaration placement: declarations appear outside Principal Display Panel ('{visual.placement}').")
     return _pass("RULE8", name, ref, f"Declarations on Principal Display Panel: {visual.placement}")
 
 
@@ -477,7 +474,7 @@ def _rule9(visual: VisualChecks) -> RuleResult:
         return _review("RULE9", name, ref, "Readability could not be assessed — manual legibility check required.")
     r = visual.readability.upper()
     if any(term in r for term in ["POOR", "UNREADABLE", "ILLEGIBLE"]):
-        return _fail("RULE9", name, ref, "Declarations are not sufficiently legible/prominent — readability assessed as POOR.")
+        return _review("RULE9", name, ref, "Poor declaration readability: declarations are not sufficiently legible/prominent.")
     if any(term in r for term in ["FAIR", "REVIEW", "BORDERLINE"]):
         return _review("RULE9", name, ref, f"Readability assessed as '{visual.readability}' — manual legibility verification recommended.")
     return _pass("RULE9", name, ref, f"Readability: {visual.readability} — declarations are legible and prominent.")
@@ -577,10 +574,12 @@ class RuleEngine:
         # Score (0.0–1.0)
         score = round(len(passed) / len(applicable), 4) if applicable else 0.0
 
-        # Violations: flat strings for backward-compat with frontend
-        violations = [f"{r.name}: {r.reason}" if r.reason else r.name for r in failed]
-        # Review violations
-        review_violations = [f"{r.name}: {r.reason}" if r.reason else r.name for r in review_rules]
+        # Violations: flat strings for backward-compat with frontend and test suites
+        violations = [
+            f"{r.name}: {r.reason}" if r.reason else r.name
+            for r in applicable
+            if r.status in ("FAIL", "REVIEW")
+        ]
 
         # Confidence: weighted average of OCR confidences, reduced for each REVIEW rule
         if ocr_confidences:

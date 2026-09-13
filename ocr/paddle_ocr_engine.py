@@ -29,6 +29,7 @@ class RapidOCREngine(OCREngineProtocol):
 
     _instance: Optional["RapidOCREngine"] = None
     _lock: threading.Lock = threading.Lock()
+    _inference_lock: threading.Lock = threading.Lock()
 
     def __init__(self, show_log: bool = False):
         """Initialize RapidOCR engine instance."""
@@ -75,7 +76,8 @@ class RapidOCREngine(OCREngineProtocol):
             return []
 
         try:
-            raw_out = self._engine(image)
+            with self._inference_lock:
+                raw_out = self._engine(image)
             # RapidOCR returns (results, elapse_list)
             results = raw_out[0] if isinstance(raw_out, tuple) else raw_out
         except Exception as err:
@@ -133,19 +135,7 @@ def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRa
     try:
         engine = RapidOCREngine.get_instance()
         tokens = engine.detect_and_recognize(image_np)
-        if tokens:
-            return OCRRawPayload(texts=tokens)
+        return OCRRawPayload(texts=tokens or [])
     except Exception as err:
-        logger.debug(f"RapidOCR inference fallback engaged: {err}")
-
-    # Fallback tokens for lightweight mock / test fixtures without deep learning weights
-    logger.info("Using baseline OCR tokens fallback for development/testing environment.")
-    fallback_tokens = [
-        OCRToken(text="Mfd by: Green Valley Organics Pvt Ltd, Pune 411001", confidence=0.98, bbox=[50, 100, 400, 140]),
-        OCRToken(text="Country of Origin: India", confidence=0.99, bbox=[50, 150, 250, 180]),
-        OCRToken(text="Net Weight: 500 g", confidence=0.97, bbox=[50, 190, 200, 220]),
-        OCRToken(text="Mfg Date: 08/2026", confidence=0.95, bbox=[50, 230, 220, 260]),
-        OCRToken(text="MRP: Rs 140.00 (inclusive of all taxes)", confidence=0.96, bbox=[50, 270, 320, 300]),
-        OCRToken(text="Consumer Care: care@greenvalley.com / 1800-200-1122", confidence=0.94, bbox=[50, 310, 450, 340]),
-    ]
-    return OCRRawPayload(texts=fallback_tokens)
+        logger.error(f"RapidOCR inference failed: {err}")
+        return OCRRawPayload(texts=[])

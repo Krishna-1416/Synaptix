@@ -670,15 +670,11 @@ function App() {
         setApiConnected(true)
         setNotice('')
 
-        if (isAdmin(user)) {
-          try {
-            const remoteStats = await api.getDashboardStats()
-            if (mounted) setStats(normalizeStats(remoteStats))
-          } catch {
-            if (mounted) setStats(computeStatsFromInspections(items))
-          }
-        } else {
-          setStats(computeStatsFromInspections(items))
+        try {
+          const remoteStats = await api.getDashboardStats()
+          if (mounted) setStats(normalizeStats(remoteStats))
+        } catch {
+          if (mounted) setStats(computeStatsFromInspections(items))
         }
       })
       .catch((err) => {
@@ -944,47 +940,57 @@ function Dashboard({ user, stats, inspections, loading, onNavigate, onOpen, lang
         <Metric label={t('needAttention', lang)} value={stats.fail + stats.review} detail={`${stats.fail} ${t('nonCompliant', lang)} · ${stats.review} ${t('needsReview', lang)}`} icon={Bell} tone="orange" />
         <Metric label={t('recentAlerts', lang)} value={stats.alerts} detail={t('flaggedViolations', lang)} icon={Activity} tone="red" />
       </section>
-      {isAdmin(user) && (
-        <div className="content-grid">
-          <section className="panel workflow-panel">
-            <div className="panel-heading">
-              <div>
-                <div className="eyebrow">{t('inspectionWorkflow', lang)}</div>
-                <h2>{t('keepDeskMoving', lang)}</h2>
-              </div>
-              <Activity size={18} className="muted-icon" />
+      <div className="content-grid">
+        <section className="panel workflow-panel">
+          <div className="panel-heading">
+            <div>
+              <div className="eyebrow">{t('inspectionWorkflow', lang)}</div>
+              <h2>{t('keepDeskMoving', lang)}</h2>
             </div>
-            <div className="workflow-items">
-              <button onClick={() => onNavigate('scan')}>
-                <ImagePlus size={17} />
-                <span><strong>{t('startNewInspection', lang)}</strong><small>{t('captureOrUpload', lang)}</small></span>
-                <ArrowUpRight size={15} />
-              </button>
-              <button onClick={() => onNavigate('analytics')}>
-                <BarChart3 size={17} />
-                <span><strong>{t('monitorIntelligence', lang)}</strong><small>{t('trackOutcomes', lang)}</small></span>
-                <ArrowUpRight size={15} />
-              </button>
+            <Activity size={18} className="muted-icon" />
+          </div>
+          <div className="workflow-items">
+            <button onClick={() => onNavigate('scan')}>
+              <ImagePlus size={17} />
+              <span><strong>{t('startNewInspection', lang)}</strong><small>{t('captureOrUpload', lang)}</small></span>
+              <ArrowUpRight size={15} />
+            </button>
+            <button onClick={() => onNavigate(isAdmin(user) ? 'analytics' : 'history')}>
+              <BarChart3 size={17} />
+              <span><strong>{t('monitorIntelligence', lang)}</strong><small>{t('trackOutcomes', lang)}</small></span>
+              <ArrowUpRight size={15} />
+            </button>
+          </div>
+        </section>
+        <section className="panel status-panel">
+          <div className="panel-heading">
+            <div>
+              <div className="eyebrow">{t('workspaceStatus', lang)}</div>
+              <h2>{t('readyForNext', lang)}</h2>
             </div>
-          </section>
-          <section className="panel status-panel">
-            <div className="panel-heading">
-              <div>
-                <div className="eyebrow">{t('workspaceStatus', lang)}</div>
-                <h2>{t('readyForNext', lang)}</h2>
-              </div>
-              <ShieldCheck size={18} className="muted-icon" />
+            <ShieldCheck size={18} className="muted-icon" />
+          </div>
+          <div className="workspace-status">
+            <CheckCircle2 size={28} />
+            <div>
+              <strong>{loading ? 'Syncing workspace' : t('deskOnline', lang)}</strong>
+              <span>{loading ? 'Loading records...' : `${stats.total} ${t('inspectionsAvailable', lang)}`}</span>
             </div>
-            <div className="workspace-status">
-              <CheckCircle2 size={28} />
-              <div>
-                <strong>{loading ? 'Syncing workspace' : t('deskOnline', lang)}</strong>
-                <span>{loading ? 'Loading records...' : `${stats.total} ${t('inspectionsAvailable', lang)}`}</span>
-              </div>
-            </div>
-          </section>
+          </div>
+        </section>
+      </div>
+      <section className="panel" style={{ marginTop: '24px' }}>
+        <div className="panel-heading">
+          <div>
+            <div className="eyebrow">{t('inspections', lang)}</div>
+            <h2>Recent Inspections</h2>
+          </div>
+          <button className="button secondary" onClick={() => onNavigate('history')}>
+            View all <ArrowUpRight size={15} />
+          </button>
         </div>
-      )}
+        <InspectionTable inspections={inspections.slice(0, 5)} onOpen={onOpen} onNavigate={onNavigate} showInspector={isAdmin(user)} lang={lang} />
+      </section>
     </div>
   )
 }
@@ -1161,7 +1167,7 @@ function AnalyticsView({ stats, inspections = [], lang }) {
                     <td><strong>{item.inspection_id}</strong></td>
                     <td><strong>{item.product?.name || 'Unnamed product'}</strong></td>
                     <td>{item.product?.category || 'Packaged Commodity'}</td>
-                    <td><span className="inspector-tag">{item.user_id || 'Officer-Central'}</span></td>
+                    <td><span className="inspector-tag">{item.user_id || 'Unassigned'}</span></td>
                     <td><StatusBadge status={item.compliance?.status} lang={lang} /></td>
                     <td><span className="date-cell">{formatDate(item.created_at, lang)}</span></td>
                   </tr>
@@ -1177,15 +1183,35 @@ function AnalyticsView({ stats, inspections = [], lang }) {
 
 function ConfigurationView({ theme, onToggleTheme, lang }) {
   const [saved, setSaved] = useState(false)
-  const [settings, setSettings] = useState({ alerts: true, autoReport: true, confidence: '85%', category: 'All categories' })
-  function update(name, value) { setSettings((current) => ({ ...current, [name]: value })); setSaved(false) }
+  const [settings, setSettings] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('synaptix_workspace_settings')
+      if (stored) return JSON.parse(stored)
+    } catch {}
+    return { alerts: true, autoReport: true, confidence: '85%', category: 'All categories' }
+  })
+  function update(name, value) {
+    setSettings((current) => {
+      const updated = { ...current, [name]: value }
+      try { window.localStorage.setItem('synaptix_workspace_settings', JSON.stringify(updated)) } catch {}
+      return updated
+    })
+    setSaved(false)
+  }
+  function handleSave() {
+    try {
+      window.localStorage.setItem('synaptix_workspace_settings', JSON.stringify(settings))
+    } catch {}
+    setSaved(true)
+    window.setTimeout(() => setSaved(false), 2500)
+  }
   return (
     <div className="page">
       <PageIntro
         eyebrow="Workspace preferences"
         title="Make it yours."
         description="Control how Synaptix behaves during daily inspection work."
-        action={<button className="button primary" onClick={() => { setSaved(true); window.setTimeout(() => setSaved(false), 2500) }}><Check size={17} /> {saved ? 'Saved' : 'Save changes'}</button>}
+        action={<button className="button primary" onClick={handleSave}><Check size={17} /> {saved ? 'Saved' : 'Save changes'}</button>}
       />
       <div className="configuration-grid">
         <section className="panel settings-panel">
@@ -1308,7 +1334,7 @@ function InspectionTable({ inspections, onOpen, onNavigate, showInspector = fals
               </td>
               {showInspector && (
                 <td>
-                  <span className="inspector-tag">{item.user_id || item.inspector_id || 'Officer-Central'}</span>
+                  <span className="inspector-tag">{item.user_id || item.inspector_id || 'Unassigned'}</span>
                 </td>
               )}
               <td><StatusBadge status={item.compliance?.status} lang={lang} /></td>
@@ -1709,7 +1735,7 @@ function InteractiveComplianceChart({ score, rules, lang }) {
 
 function InteractiveConfidenceChart({ confidence, ocrCount, lang }) {
   const [hovered, setHovered] = useState(false)
-  const safeConfidence = confidence != null ? Math.max(0, Math.min(100, confidence)) : 90
+  const safeConfidence = confidence != null ? Math.max(0, Math.min(100, confidence)) : 0
   const radius = 42
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - safeConfidence / 100)
@@ -1766,7 +1792,7 @@ function InteractiveConfidenceChart({ confidence, ocrCount, lang }) {
       {hovered && (
         <div className="pie-hover-tooltip">
           <strong>OCR & Vision Certainty: {safeConfidence}%</strong>
-          <small>Cross-verified across {ocrCount || 6} recognized text regions</small>
+          <small>Cross-verified across {ocrCount ?? 0} recognized text regions</small>
         </div>
       )}
     </div>
@@ -1826,7 +1852,7 @@ function reportHtml(inspection) {
     <tr><th>Product Name</th><td>${escapeHtml(inspection.product?.name || 'Unnamed Product')}</td></tr>
     <tr><th>Category</th><td>${escapeHtml(inspection.product?.category || 'Packaged Commodity')}</td></tr>
     <tr><th>Statutory Decision</th><td><b>${statusMeta[inspection.compliance?.status]?.className === 'pass' ? 'COMPLIANT (Pass)' : 'NON-COMPLIANT (Violation Flagged)'}</b></td></tr>
-    <tr><th>Enforcement Officer ID</th><td>${escapeHtml(inspection.user_id || 'Officer-Central')}</td></tr>
+    <tr><th>Enforcement Officer ID</th><td>${escapeHtml(inspection.user_id || 'Unassigned')}</td></tr>
   </table>
 
   <h2>Scanned Label Evidence Proof</h2>
@@ -1954,7 +1980,7 @@ function ReportExport({ inspection, loading, setLoading, lang }) {
       ['Product Name', inspection.product?.name || 'Not returned'],
       ['Category', inspection.product?.category || 'Packaged Commodity'],
       ['Inspection ID', inspection.inspection_id],
-      ['Inspector ID', inspection.user_id || 'Officer-Central'],
+      ['Inspector ID', inspection.user_id || 'Unassigned'],
       ['Inspection Date', formatDate(inspection.created_at)],
       ['Final Statutory Result', inspection.compliance?.status === 'PASS' ? 'COMPLIANT' : 'NON-COMPLIANT'],
       ['Compliance Score', score != null ? `${score} / 100` : 'Not returned'],
@@ -2227,15 +2253,15 @@ function Detail({ inspection, onBack, onReport, lang }) {
           <div className="visual-summary">
             <div>
               <span>{t('readability', lang)}</span>
-              <strong>{visual.readability || 'Compliant'}</strong>
+              <strong>{visual.readability || 'Not evaluated'}</strong>
             </div>
             <div>
               <span>{t('fontHeight', lang)}</span>
-              <strong>{visual.font_height ? `${visual.font_height} mm` : '1.2 mm'}</strong>
+              <strong>{visual.font_height ? `${visual.font_height} mm` : 'Not detected'}</strong>
             </div>
             <div>
               <span>{t('placement', lang)}</span>
-              <strong>{visual.placement || 'Principal Display Panel'}</strong>
+              <strong>{visual.placement || 'Not evaluated'}</strong>
             </div>
           </div>
           {displayedImageUrl && (
@@ -2359,7 +2385,7 @@ function Detail({ inspection, onBack, onReport, lang }) {
             })}
           </div>
           <div className="ocr-count">
-            <Activity size={15} /> {ocr.texts?.length || 8} text regions detected by OCR
+            <Activity size={15} /> {ocr.texts?.length ?? 0} text regions detected by OCR
           </div>
         </section>
       </div>

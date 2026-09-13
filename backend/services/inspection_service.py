@@ -2,6 +2,7 @@ import gc
 import uuid
 import asyncio
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from backend.models.inspection import (
@@ -24,7 +25,22 @@ logger = logging.getLogger("synaptix.inspection_service")
 _MEMORY_INSPECTIONS: Dict[str, Dict[str, Any]] = {}
 
 # Concurrency throttle to prevent parallel heavy OCR/CV pipelines from exceeding 512MB RAM on Render
-_INSPECTION_SEMAPHORE = asyncio.Semaphore(1)
+_loop_semaphores: Dict[Any, asyncio.Semaphore] = {}
+_semaphore_lock = threading.Lock()
+
+def _get_inspection_semaphore(limit: int = 2) -> asyncio.Semaphore:
+    """Retrieve an asyncio.Semaphore safely bound to the active thread's event loop."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.Semaphore(limit)
+    with _semaphore_lock:
+        if loop not in _loop_semaphores:
+            _loop_semaphores[loop] = asyncio.Semaphore(limit)
+        return _loop_semaphores[loop]
+
+
+_DETECTED_OWNERSHIP_COLUMN: Optional[str] = None
 
 
 def _database_inspector_id(inspector_id: Optional[str]) -> Optional[str]:
@@ -38,15 +54,45 @@ def _database_inspector_id(inspector_id: Optional[str]) -> Optional[str]:
     return str(inspector_id)
 
 
+def _get_ownership_column(admin_client) -> str:
+    """
+    Detect whether the Supabase table uses 'user_id' or 'inspector_id'.
+    Caches the column name for high performance on Render deployment.
+    """
+    global _DETECTED_OWNERSHIP_COLUMN
+    if _DETECTED_OWNERSHIP_COLUMN:
+        return _DETECTED_OWNERSHIP_COLUMN
+
+    try:
+        # Probe using limit(0)
+        admin_client.table("inspections").select("user_id").limit(0).execute()
+        _DETECTED_OWNERSHIP_COLUMN = "user_id"
+    except Exception:
+        _DETECTED_OWNERSHIP_COLUMN = "inspector_id"
+
+    logger.info(f"Supabase inspections table ownership column resolved to: '{_DETECTED_OWNERSHIP_COLUMN}'")
+    return _DETECTED_OWNERSHIP_COLUMN
+
+
+def _normalize_inspection_row(row: Dict[str, Any]) -> InspectionResult:
+    """Ensure row has both annotated_image_url and user_id mapped for frontend / client consumers."""
+    normalized = dict(row)
+    if not normalized.get("annotated_image_url"):
+        normalized["annotated_image_url"] = (normalized.get("visual_checks") or {}).get("overlay_image")
+    if not normalized.get("user_id") and normalized.get("inspector_id"):
+        normalized["user_id"] = str(normalized["inspector_id"])
+    return InspectionResult(**normalized)
+
+
 def _run_cv_preprocess(image_bytes: bytes) -> bytes:
     """Validate image bytes, downscale if needed (preventing OOM), and deskew."""
     from ocr.preprocess_handoff import PreprocessHandoff
+    # load_and_validate enforces resolution clamping and raises ValueError on corrupt/invalid image
+    validated_rgb = PreprocessHandoff.load_and_validate(image_bytes)
     try:
         import cv2
         from cv.deskew import deskew_image
 
-        # load_and_validate enforces resolution clamping (TARGET_MAX_DIMENSION = 1600)
-        validated_rgb = PreprocessHandoff.load_and_validate(image_bytes)
         corrected, angle = deskew_image(validated_rgb)
         if angle is not None and abs(angle) > 0.3:
             logger.info(f"CV deskew applied rotation: {angle:.2f}°")
@@ -107,32 +153,8 @@ def _run_ocr_pipeline(image_bytes: bytes, filename: str) -> Tuple[OCRRaw, Mandat
         )
         return raw_ocr, fields
     except Exception as e:
-        logger.warning(f"OCR module fallback used: {e}")
-
-        # Intelligent baseline fallback demonstration
-        mock_raw = OCRRaw(
-            texts=[
-                OCRTextItem(text="Mfd by: Green Valley Organics Pvt Ltd, Pune 411001", confidence=0.98, bbox=[50.0, 100.0, 400.0, 140.0]),
-                OCRTextItem(text="Country of Origin: India", confidence=0.99, bbox=[50.0, 150.0, 250.0, 180.0]),
-                OCRTextItem(text="Common Name: Organic Rolled Oats", confidence=0.97, bbox=[50.0, 170.0, 300.0, 195.0]),
-                OCRTextItem(text="Net Weight: 500 g", confidence=0.97, bbox=[50.0, 190.0, 200.0, 220.0]),
-                OCRTextItem(text="Mfg Date: 08/2026", confidence=0.95, bbox=[50.0, 230.0, 220.0, 260.0]),
-                OCRTextItem(text="MRP: Rs 140.00 (inclusive of all taxes)", confidence=0.96, bbox=[50.0, 270.0, 320.0, 300.0]),
-                OCRTextItem(text="USP: Rs 0.28 / g", confidence=0.95, bbox=[50.0, 290.0, 220.0, 315.0]),
-                OCRTextItem(text="Consumer Care: care@greenvalley.com / 1800-200-1122", confidence=0.94, bbox=[50.0, 310.0, 450.0, 340.0]),
-            ]
-        )
-        mock_fields = MandatoryFields(
-            manufacturer="Green Valley Organics Pvt Ltd, Pune 411001",
-            country_of_origin="India",
-            generic_name="Organic Rolled Oats",
-            net_quantity="500 g",
-            manufacture_date="08/2026",
-            mrp="₹140.00",
-            unit_sale_price="₹ 0.28 / g",
-            consumer_care="care@greenvalley.com / 1800-200-1122"
-        )
-        return mock_raw, mock_fields
+        logger.warning(f"OCR module extraction error: {e}")
+        return OCRRaw(texts=[]), MandatoryFields()
 
 
 def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
@@ -140,7 +162,6 @@ def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
     try:
         import cv2
         from cv.pipeline import run_cv_pipeline
-        import cv2
         import base64
 
         cv_result = run_cv_pipeline(image_bytes)
@@ -180,7 +201,7 @@ def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
         return (
             VisualChecks(
                 readability=readability,
-                font_height=font_h or 1.85,
+                font_height=font_h,
                 placement=placement,
                 dpi=cv_result.dpi,
                 overlay_image=overlay_uri
@@ -188,12 +209,12 @@ def _run_cv_visual_checks(image_bytes: bytes) -> VisualChecks:
             overlay_bytes
         )
     except Exception as e:
-        logger.warning(f"CV visual checks fallback used: {e}")
+        logger.warning(f"CV visual checks error: {e}")
         return (
             VisualChecks(
-                readability="HIGH (Clear)",
-                font_height=1.85,
-                placement="Principal Display Panel",
+                readability="POOR (Unchecked)",
+                font_height=None,
+                placement="Uncertain",
                 dpi=150.0
             ),
             None
@@ -220,7 +241,7 @@ class InspectionService:
         5. Legal Metrology Rules Validation
         6. Database Record Persistence
         """
-        async with _INSPECTION_SEMAPHORE:
+        async with _get_inspection_semaphore():
             inspection_id = f"INS-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
             # 1. Image upload to storage
@@ -290,6 +311,8 @@ class InspectionService:
         if inspection.annotated_image_url and not visual_data.get("overlay_image"):
             visual_data["overlay_image"] = inspection.annotated_image_url
 
+        db_id = _database_inspector_id(inspector_id or inspection.user_id)
+
         record = {
             "inspection_id": inspection.inspection_id,
             "image_id": inspection.image_id,
@@ -300,20 +323,52 @@ class InspectionService:
             "visual_checks": visual_data,
             "compliance": inspection.compliance.model_dump(),
             "created_at": inspection.created_at,
-            "user_id": _database_inspector_id(inspector_id)
+            "user_id": db_id,
         }
 
         # Cache in memory
-        _MEMORY_INSPECTIONS[inspection.inspection_id] = record
+        _MEMORY_INSPECTIONS[inspection.inspection_id] = dict(record)
 
         admin_client = get_supabase_admin_client()
         if admin_client:
+            owner_col = _get_ownership_column(admin_client)
+            db_record = dict(record)
+            if owner_col != "user_id":
+                db_record.pop("user_id", None)
+                db_record[owner_col] = db_id
+
             try:
-                admin_client.table("inspections").insert(record).execute()
-                logger.info(f"Persisted inspection {inspection.inspection_id} to Supabase 'inspections' table.")
+                admin_client.table("inspections").insert(db_record).execute()
+                logger.info(f"Persisted inspection {inspection.inspection_id} to Supabase using column '{owner_col}'.")
                 return True
             except Exception as e:
-                logger.error(f"Failed to persist inspection to Supabase DB ({e}). Kept in memory fallback.")
+                err_str = str(e)
+                # Handle foreign key constraint if profile row doesn't exist for inspector_id
+                if "23503" in err_str or "violates foreign key constraint" in err_str:
+                    logger.warning(f"Inspector ID {db_id} not present in 'profiles' table. Retrying insert with NULL ownership.")
+                    db_record[owner_col] = None
+                    try:
+                        admin_client.table("inspections").insert(db_record).execute()
+                        logger.info(f"Persisted inspection {inspection.inspection_id} to Supabase with NULL ownership.")
+                        return True
+                    except Exception as retry_err:
+                        logger.error(f"Failed to persist inspection even with NULL ownership: {retry_err}")
+                elif "PGRST204" in err_str or "column" in err_str:
+                    # Column mismatch: flip ownership column and retry once
+                    alt_col = "inspector_id" if owner_col == "user_id" else "user_id"
+                    logger.warning(f"Insert using '{owner_col}' failed ({e}). Retrying with alternate '{alt_col}'.")
+                    db_record.pop(owner_col, None)
+                    db_record[alt_col] = db_id
+                    try:
+                        admin_client.table("inspections").insert(db_record).execute()
+                        global _DETECTED_OWNERSHIP_COLUMN
+                        _DETECTED_OWNERSHIP_COLUMN = alt_col
+                        logger.info(f"Persisted inspection {inspection.inspection_id} to Supabase using '{alt_col}'.")
+                        return True
+                    except Exception as retry_err:
+                        logger.error(f"Retry with '{alt_col}' also failed: {retry_err}")
+                else:
+                    logger.error(f"Failed to persist inspection to Supabase DB ({e}). Kept in memory fallback.")
                 return False
         return True
 
@@ -392,7 +447,7 @@ class InspectionService:
             "compliance": updated_result.compliance.model_dump(),
             "created_at": updated_result.created_at,
             "user_id": _database_inspector_id(
-                inspector_id or _MEMORY_INSPECTIONS.get(inspection_id, {}).get("user_id")
+                inspector_id or _MEMORY_INSPECTIONS.get(inspection_id, {}).get("user_id") or _MEMORY_INSPECTIONS.get(inspection_id, {}).get("inspector_id")
             )
         }
         _MEMORY_INSPECTIONS[inspection_id] = record
@@ -422,24 +477,27 @@ class InspectionService:
         admin_client = get_supabase_admin_client()
         if admin_client:
             try:
+                owner_col = _get_ownership_column(admin_client)
                 query = admin_client.table("inspections").select("*").eq("inspection_id", inspection_id)
                 if not is_admin and requester_id:
-                    query = query.eq("user_id", requester_id)
+                    db_id = _database_inspector_id(requester_id)
+                    if db_id:
+                        query = query.eq(owner_col, db_id)
                 res = query.execute()
                 if res.data and len(res.data) > 0:
-                    row = res.data[0]
-                    if not row.get("annotated_image_url"):
-                        row["annotated_image_url"] = (row.get("visual_checks") or {}).get("overlay_image")
-                    return InspectionResult(**row)
+                    return _normalize_inspection_row(res.data[0])
             except Exception as e:
                 logger.warning(f"Failed querying Supabase for {inspection_id}: {e}")
 
         # Fallback to in-memory
         record = _MEMORY_INSPECTIONS.get(inspection_id)
-        if record and (is_admin or not requester_id or record.get("user_id") == requester_id):
-            if not record.get("annotated_image_url"):
-                record["annotated_image_url"] = (record.get("visual_checks") or {}).get("overlay_image")
-            return InspectionResult(**record)
+        if record and (
+            is_admin 
+            or not requester_id 
+            or record.get("user_id") == requester_id 
+            or record.get("inspector_id") == requester_id
+        ):
+            return _normalize_inspection_row(dict(record))
         return None
 
     @staticmethod
@@ -456,25 +514,26 @@ class InspectionService:
         admin_client = get_supabase_admin_client()
         if admin_client:
             try:
+                owner_col = _get_ownership_column(admin_client)
                 query = admin_client.table("inspections").select("*", count="exact")
                 if not is_admin and requester_id:
-                    query = query.eq("user_id", requester_id)
+                    db_id = _database_inspector_id(requester_id)
+                    if db_id:
+                        query = query.eq(owner_col, db_id)
                 if status:
                     query = query.eq("compliance->>status", status.upper())
                 if search:
                     query = query.ilike("product->>name", f"%{search}%")
                 if inspector_id:
-                    query = query.eq("inspector_id", inspector_id)
+                    db_filter_id = _database_inspector_id(inspector_id)
+                    if db_filter_id:
+                        query = query.eq(owner_col, db_filter_id)
 
                 offset = (page - 1) * limit
                 query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
                 response = query.execute()
 
-                items = []
-                for row in response.data:
-                    if not row.get("annotated_image_url"):
-                        row["annotated_image_url"] = (row.get("visual_checks") or {}).get("overlay_image")
-                    items.append(InspectionResult(**row))
+                items = [_normalize_inspection_row(row) for row in response.data]
                 total = response.count or len(items)
                 return {"data": items, "total": total, "page": page, "limit": limit}
             except Exception as e:
@@ -483,7 +542,10 @@ class InspectionService:
         # Fallback to in-memory
         all_items = list(_MEMORY_INSPECTIONS.values())
         if not is_admin and requester_id:
-            all_items = [item for item in all_items if item.get("user_id") == requester_id]
+            all_items = [
+                item for item in all_items 
+                if item.get("user_id") == requester_id or item.get("inspector_id") == requester_id
+            ]
         filtered = all_items
         if status:
             filtered = [item for item in filtered if item.get("compliance", {}).get("status") == status.upper()]
@@ -496,17 +558,13 @@ class InspectionService:
         if inspector_id:
             filtered = [
                 item for item in filtered
-                if str(item.get("inspector_id") or "") == str(inspector_id)
+                if str(item.get("inspector_id") or item.get("user_id") or "") == str(inspector_id)
             ]
 
         total = len(filtered)
         start = (page - 1) * limit
         paginated = filtered[start:start + limit]
-        items = []
-        for row in paginated:
-            if not row.get("annotated_image_url"):
-                row["annotated_image_url"] = (row.get("visual_checks") or {}).get("overlay_image")
-            items.append(InspectionResult(**row))
+        items = [_normalize_inspection_row(row) for row in paginated]
         return {"data": items, "total": total, "page": page, "limit": limit}
 
     @staticmethod
@@ -517,7 +575,12 @@ class InspectionService:
     ) -> bool:
         """Deletes inspection record."""
         memory_record = _MEMORY_INSPECTIONS.get(inspection_id)
-        if memory_record and (is_admin or not requester_id or memory_record.get("user_id") == requester_id):
+        if memory_record and (
+            is_admin 
+            or not requester_id 
+            or memory_record.get("user_id") == requester_id 
+            or memory_record.get("inspector_id") == requester_id
+        ):
             _MEMORY_INSPECTIONS.pop(inspection_id, None)
             existed_in_memory = True
         else:
@@ -525,9 +588,12 @@ class InspectionService:
         admin_client = get_supabase_admin_client()
         if admin_client:
             try:
+                owner_col = _get_ownership_column(admin_client)
                 query = admin_client.table("inspections").delete().eq("inspection_id", inspection_id)
                 if not is_admin and requester_id:
-                    query = query.eq("user_id", requester_id)
+                    db_id = _database_inspector_id(requester_id)
+                    if db_id:
+                        query = query.eq(owner_col, db_id)
                 response = query.execute()
                 return existed_in_memory or bool(response.data)
             except Exception as e:
