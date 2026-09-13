@@ -6,6 +6,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,8 +22,25 @@ from backend.api.reports import router as reports_router
 from backend.api.dashboard import router as dashboard_router
 from backend.api.auth import router as auth_router
 
+logger = logging.getLogger("synaptix.main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Pre-warm CPU OCR/CV models during container boot so first user scan is fast."""
+    logger.info("Initializing Synaptix backend and pre-warming ML models...")
+    try:
+        from ocr.paddle_ocr_engine import RapidOCREngine
+        await asyncio.to_thread(RapidOCREngine.get_instance)
+        logger.info("RapidOCR PP-OCRv4 model pre-warmed in memory.")
+    except Exception as e:
+        logger.warning(f"Startup model pre-warming note: {e}")
+    yield
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
+    lifespan=lifespan,
     description=(
         "Automated packaging-compliance checker under Legal Metrology (Packaged Commodities) Rules, 2011. "
         "Scans product labels, detects mandatory declarations (Rule 6), performs visual readability checks (Rule 7), "
