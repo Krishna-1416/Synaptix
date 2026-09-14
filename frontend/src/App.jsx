@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document as WordDocument, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, TableRow, TextRun } from 'docx'
 import {
   Activity, ArrowLeft, ArrowUpRight, BarChart3, Bell, Camera, Check, CheckCircle2, ChevronRight, CircleHelp,
-  ClipboardCheck, Edit3, Eye, EyeOff, FileText, History, ImagePlus, Layers, LayoutDashboard, LoaderCircle,
+  ClipboardCheck, Edit3, Eye, EyeOff, FileText, FlipHorizontal, History, ImagePlus, Layers, LayoutDashboard, LoaderCircle,
   LogOut, Menu, Moon, Save, ScanLine, Search, Settings, ShieldCheck,
   StopCircle, Sun, SwitchCamera, UploadCloud, UserRound, X, XCircle,
   ExternalLink, Send, Paperclip, BookOpen, AlertTriangle, Download,
@@ -1465,6 +1465,8 @@ function Scan({ onComplete, onCancel, user, lang }) {
   const [error, setError] = useState('')
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraError, setCameraError] = useState('')
+  const [facingMode, setFacingMode] = useState('environment')
+  const [mirrored, setMirrored] = useState(false)
   const [progress, setProgress] = useState({ extract: 'pending', check: 'pending', decide: 'pending', message: '' })
   const fileInputRef = useRef(null)
   const videoRef = useRef(null)
@@ -1479,15 +1481,51 @@ function Scan({ onComplete, onCancel, user, lang }) {
     setCameraOpen(false)
   }
 
-  async function startCamera() {
+  async function startCamera(targetMode) {
     setCameraError('')
     if (!navigator.mediaDevices?.getUserMedia) return setCameraError('Live camera is unavailable in this browser. Use the image picker instead.')
+    const mode = targetMode || facingMode
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: mode }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      })
       streamRef.current = stream
       setCameraOpen(true)
-      window.setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play() } }, 0)
-    } catch (caught) { setCameraError(caught.name === 'NotAllowedError' ? 'Camera permission was denied. Enable it in the browser and try again.' : 'Could not open the camera. Use the image picker instead.') }
+      window.setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play()
+        }
+      }, 0)
+    } catch (caught) {
+      try {
+        const fallbackStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        })
+        streamRef.current = fallbackStream
+        setCameraOpen(true)
+        window.setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream
+            videoRef.current.play()
+          }
+        }, 0)
+      } catch (fallbackErr) {
+        setCameraError(caught.name === 'NotAllowedError' ? 'Camera permission was denied. Enable it in the browser and try again.' : 'Could not open the camera. Use the image picker instead.')
+      }
+    }
+  }
+
+  function switchCamera() {
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment'
+    setFacingMode(nextMode)
+    startCamera(nextMode)
   }
 
   function capturePhoto() {
@@ -1496,8 +1534,18 @@ function Scan({ onComplete, onCancel, user, lang }) {
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob((blob) => { if (blob) { setFile(new File([blob], `synaptix-capture-${Date.now()}.jpg`, { type: 'image/jpeg' })); stopCamera() } }, 'image/jpeg', .92)
+    const ctx = canvas.getContext('2d')
+    if (mirrored) {
+      ctx.translate(canvas.width, 0)
+      ctx.scale(-1, 1)
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob((blob) => {
+      if (blob) {
+        setFile(new File([blob], `synaptix-capture-${Date.now()}.jpg`, { type: 'image/jpeg' }))
+        stopCamera()
+      }
+    }, 'image/jpeg', .92)
   }
 
   async function submit(event) {
@@ -1554,13 +1602,14 @@ function Scan({ onComplete, onCancel, user, lang }) {
         <div className="scan-main">
           {cameraOpen ? (
             <div className="camera-viewfinder">
-              <video ref={videoRef} playsInline muted />
+              <video ref={videoRef} className={mirrored ? 'mirrored' : ''} playsInline muted />
               <div className="viewfinder-frame"><i /><i /><i /><i /></div>
               <div className="viewfinder-guide"><ScanLine size={16} /> Align the full label inside the frame</div>
               <div className="camera-controls">
-                <button type="button" className="camera-control" onClick={stopCamera}><StopCircle size={18} /> Close</button>
+                <button type="button" className="camera-control" onClick={stopCamera} title="Close camera"><StopCircle size={18} /> Close</button>
+                <button type="button" className="camera-control" onClick={switchCamera} title="Flip camera (front / back)"><SwitchCamera size={18} /> {facingMode === 'environment' ? 'Rear' : 'Front'}</button>
                 <button type="button" className="capture-button" onClick={capturePhoto} aria-label="Capture label photo"><Camera size={22} /></button>
-                <button type="button" className="camera-control" onClick={startCamera}><SwitchCamera size={18} /> Reset</button>
+                <button type="button" className="camera-control" onClick={() => setMirrored((m) => !m)} title="Toggle mirror effect"><FlipHorizontal size={18} /> {mirrored ? 'Mirrored' : 'Normal'}</button>
               </div>
             </div>
           ) : (
