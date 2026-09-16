@@ -1404,24 +1404,32 @@ td span {
 }
 
 .upload-subtitle {
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--muted);
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  text-align: center;
+}
+
+.browse-pill-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
 }
 
 .browse-pill-btn {
   display: inline-flex;
   align-items: center;
-  padding: 4px 12px;
+  padding: 6px 18px;
   border-radius: 9999px;
   background: rgba(99, 91, 255, 0.18);
   border: 1px solid rgba(99, 91, 255, 0.35);
   color: #A5B4FC;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
 .upload-spec-badge {
@@ -5827,11 +5835,8 @@ textarea:focus { outline: 2px solid var(--primary-border); outline-offset: 1px; 
   line-height: 1.35;
 }
 .upload-subtitle {
-  flex-wrap: wrap;
   justify-content: center;
-  row-gap: 10px;
-  column-gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   line-height: 1.5;
 }
 .browse-pill-btn {

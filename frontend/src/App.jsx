@@ -1738,7 +1738,9 @@ function Scan({ onComplete, onCancel, user, lang }) {
                     </div>
                     <strong className="upload-title">{t('dropLabelHere', lang)}</strong>
                     <div className="upload-subtitle">
-                      <span>Drag & drop multiple package panels or</span>
+                      <span>Drag & drop multiple package panels</span>
+                    </div>
+                    <div className="browse-pill-container">
                       <span className="browse-pill-btn">Browse files</span>
                     </div>
                     <span className="upload-spec-badge">Upload Front, Back & Side panels · JPG, PNG, WEBP up to 10 files</span>
