@@ -22,7 +22,7 @@ class PreprocessHandoff:
 
     MIN_DIMENSION: int = 32
     MAX_DIMENSION: int = 8192
-    TARGET_MAX_DIMENSION: int = 1600
+    TARGET_MAX_DIMENSION: int = 2400
 
     @classmethod
     def load_and_validate(cls, source: Union[np.ndarray, str, Path, bytes, bytearray]) -> np.ndarray:

@@ -6,17 +6,19 @@ Provides fast, lightweight, CPU-optimized text detection and recognition:
 - Low memory footprint (~180 MB - 220 MB RAM), zero heavy C++ compiler dependencies
 - Thread-safe singleton accessor
 - Automatic polygon-to-bbox coordinate normalization
+- Multi-pass adaptive recovery for real-world conditions (glare, shadows, low contrast, tiny fonts)
 """
 
 import logging
 import threading
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 import numpy as np
 
 from ocr.interfaces import OCREngineProtocol, OCRToken
 from ocr.models import OCRRawPayload
 from ocr.preprocess_handoff import PreprocessHandoff
+from cv.adaptive_enhancement import enhance_packaging_image, upscale_if_low_res
 
 logger = logging.getLogger("synaptix.ocr.rapid")
 
@@ -36,6 +38,8 @@ class RapidOCREngine(OCREngineProtocol):
         try:
             from rapidocr_onnxruntime import RapidOCR
             self._engine = RapidOCR()
+            # Disable aspect ratio cutoff to prevent skipping text on elongated packaging (cans, milk cartons)
+            self._engine.width_height_ratio = -1
             logger.info("RapidOCR (PP-OCRv4 ONNXRuntime) engine initialized successfully.")
         except ImportError as err:
             logger.error(f"RapidOCR library is missing: {err}. Please install `rapidocr-onnxruntime`.")
@@ -62,12 +66,23 @@ class RapidOCREngine(OCREngineProtocol):
         ys = [pt[1] for pt in polygon]
         return [int(round(min(xs))), int(round(min(ys))), int(round(max(xs))), int(round(max(ys)))]
 
-    def detect_and_recognize(self, image: np.ndarray) -> list[OCRToken]:
+    def detect_and_recognize(
+        self,
+        image: np.ndarray,
+        box_thresh: float = 0.38,
+        unclip_ratio: float = 1.8,
+        text_score: float = 0.45,
+        limit_side_len: int = 1536,
+    ) -> list[OCRToken]:
         """
         Run PP-OCRv4 detection and recognition on the provided RGB image array.
 
         Args:
             image: uint8 NumPy array of shape (H, W, 3).
+            box_thresh: DBNet detection threshold (lower captures fainter text strokes).
+            unclip_ratio: Bounding box expansion ratio (preserves diacritics & decimals).
+            text_score: Recognition confidence threshold.
+            limit_side_len: Max side length for DBNet inference (preserves 1mm packaging fonts).
 
         Returns:
             list[OCRToken]: Detected tokens with text, confidence, and bounding box.
@@ -77,7 +92,17 @@ class RapidOCREngine(OCREngineProtocol):
 
         try:
             with self._inference_lock:
-                raw_out = self._engine(image)
+                # Configure detector limit side length to preserve small fonts
+                if hasattr(self._engine, "text_detector") and hasattr(self._engine.text_detector, "preprocess_op"):
+                    if len(self._engine.text_detector.preprocess_op) > 0:
+                        self._engine.text_detector.preprocess_op[0].limit_side_len = limit_side_len
+
+                raw_out = self._engine(
+                    image,
+                    box_thresh=box_thresh,
+                    unclip_ratio=unclip_ratio,
+                    text_score=text_score,
+                )
             # RapidOCR returns (results, elapse_list)
             results = raw_out[0] if isinstance(raw_out, tuple) else raw_out
         except Exception as err:
@@ -115,27 +140,144 @@ class RapidOCREngine(OCREngineProtocol):
         return tokens
 
 
+def compute_iou(bbox1: List[int], bbox2: List[int]) -> float:
+    """Compute Intersection-over-Union between two bounding boxes [x1, y1, x2, y2]."""
+    x1 = max(bbox1[0], bbox2[0])
+    y1 = max(bbox1[1], bbox2[1])
+    x2 = min(bbox1[2], bbox2[2])
+    y2 = min(bbox1[3], bbox2[3])
+
+    inter_w = max(0, x2 - x1)
+    inter_h = max(0, y2 - y1)
+    inter_area = inter_w * inter_h
+    if inter_area == 0:
+        return 0.0
+
+    area1 = max(0, bbox1[2] - bbox1[0]) * max(0, bbox1[3] - bbox1[1])
+    area2 = max(0, bbox2[2] - bbox2[0]) * max(0, bbox2[3] - bbox2[1])
+    union_area = area1 + area2 - inter_area
+    return inter_area / union_area if union_area > 0 else 0.0
+
+
+def merge_ocr_tokens(
+    tokens_a: List[OCRToken],
+    tokens_b: List[OCRToken],
+    iou_threshold: float = 0.40,
+) -> List[OCRToken]:
+    """
+    Merges tokens from two OCR passes (e.g. standard + enhanced):
+    - When tokens overlap (IoU >= threshold), retains the token with higher confidence.
+    - When tokens do not overlap, appends the rescued token.
+    """
+    merged = list(tokens_a)
+
+    for tb in tokens_b:
+        matched_idx = -1
+        best_iou = 0.0
+
+        for idx, ma in enumerate(merged):
+            iou = compute_iou(ma.bbox, tb.bbox)
+            if iou > best_iou:
+                best_iou = iou
+                matched_idx = idx
+
+        if best_iou >= iou_threshold and matched_idx >= 0:
+            # Overlap: keep the one with higher confidence or longer text
+            existing = merged[matched_idx]
+            if tb.confidence > existing.confidence + 0.10 or len(tb.text) > len(existing.text) + 3:
+                merged[matched_idx] = tb
+        else:
+            # Rescued token not detected in first pass
+            merged.append(tb)
+
+    return merged
+
+
 # Alias for backward compatibility across existing references
 PaddleOCREngine = RapidOCREngine
 
 
 def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRawPayload:
     """
-    Dedicated single OCR text extraction facade using RapidOCR (PP-OCRv4).
+    Adaptive multi-condition OCR text extraction facade using RapidOCR (PP-OCRv4).
     
     1. Validates and standardizes input into RGB uint8 ndarray.
-    2. Runs RapidOCREngine (PP-OCRv4 via ONNXRuntime).
-    3. Falls back gracefully to baseline tokens only in lightweight mock/test environments.
+    2. Pass 1: Runs RapidOCREngine with high-res detector limit (1536px).
+    3. Pass 2 (Adaptive Recovery): If Pass 1 yields low tokens (<18) or low confidence (<0.65),
+       applies glare suppression, CLAHE contrast enhancement, unsharp sharpening, and upscaling.
+    4. Merges & deduplicates tokens via spatial IoU to maximize recall under real packaging conditions.
     
     Returns:
-        OCRRawPayload: Container with detected OCRToken list.
+        OCRRawPayload: Container with complete list of OCRToken objects.
     """
     image_np = PreprocessHandoff.load_and_validate(image)
 
     try:
         engine = RapidOCREngine.get_instance()
-        tokens = engine.detect_and_recognize(image_np)
-        return OCRRawPayload(texts=tokens or [])
+        # Pass 1: Standard high-res inference
+        pass1_tokens = engine.detect_and_recognize(
+            image_np,
+            box_thresh=0.38,
+            unclip_ratio=1.8,
+            text_score=0.45,
+            limit_side_len=1536,
+        )
+
+        h, w = image_np.shape[:2]
+        mean_conf = (
+            sum(t.confidence for t in pass1_tokens) / len(pass1_tokens)
+            if pass1_tokens
+            else 0.0
+        )
+
+        # Determine if adaptive recovery pass is warranted
+        needs_recovery = (
+            len(pass1_tokens) < 18
+            or mean_conf < 0.65
+            or min(h, w) < 500
+        )
+
+        if not needs_recovery:
+            return OCRRawPayload(texts=pass1_tokens or [])
+
+        # Pass 2: Adaptive recovery pass
+        logger.info(
+            f"Triggering Pass 2 adaptive OCR recovery (Pass 1 yielded {len(pass1_tokens)} tokens, "
+            f"mean_conf={mean_conf:.2f})"
+        )
+
+        # Upscale if low-resolution
+        up_image, scale_factor = upscale_if_low_res(image_np, min_dimension_threshold=600)
+        enhanced_image = enhance_packaging_image(up_image)
+
+        pass2_raw_tokens = engine.detect_and_recognize(
+            enhanced_image,
+            box_thresh=0.28,
+            unclip_ratio=2.0,
+            text_score=0.40,
+            limit_side_len=1536,
+        )
+
+        # If upscaled, rescale Pass 2 bounding boxes back to original coordinates
+        if scale_factor > 1.001 and pass2_raw_tokens:
+            rescaled_tokens: List[OCRToken] = []
+            for t in pass2_raw_tokens:
+                orig_bbox = [int(round(coord / scale_factor)) for coord in t.bbox]
+                rescaled_tokens.append(
+                    OCRToken(text=t.text, confidence=t.confidence, bbox=orig_bbox)
+                )
+            pass2_tokens = rescaled_tokens
+        else:
+            pass2_tokens = pass2_raw_tokens
+
+        # Merge Pass 1 and Pass 2
+        final_tokens = merge_ocr_tokens(pass1_tokens, pass2_tokens, iou_threshold=0.40)
+        logger.info(
+            f"Adaptive OCR recovery complete: {len(pass1_tokens)} (P1) + {len(pass2_tokens)} (P2) -> "
+            f"{len(final_tokens)} merged tokens"
+        )
+        return OCRRawPayload(texts=final_tokens)
+
     except Exception as err:
-        logger.error(f"RapidOCR inference failed: {err}")
+        logger.error(f"RapidOCR inference failed: {err}", exc_info=True)
         return OCRRawPayload(texts=[])
