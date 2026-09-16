@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document as WordDocument, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, TableRow, TextRun } from 'docx'
 import {
-  Activity, ArrowLeft, ArrowUpRight, BarChart3, Bell, Camera, Check, CheckCircle2, ChevronRight, CircleHelp,
+  Activity, ArrowLeft, ArrowUpRight, BarChart3, Bell, Boxes, Camera, Check, CheckCircle2, ChevronRight, CircleHelp,
   ClipboardCheck, Edit3, Eye, EyeOff, FileText, FlipHorizontal, History, ImagePlus, Layers, LayoutDashboard, LoaderCircle,
-  LogOut, Menu, Moon, Save, ScanLine, Search, Settings, ShieldCheck,
-  StopCircle, Sun, SwitchCamera, UploadCloud, UserRound, X, XCircle,
+  LogOut, Menu, Moon, Plus, Save, ScanLine, Search, Settings, ShieldCheck,
+  StopCircle, Sun, SwitchCamera, Trash2, UploadCloud, UserRound, X, XCircle,
   ExternalLink, Send, Paperclip, BookOpen, AlertTriangle, Download,
   Zap, FileCheck, Languages, Sparkles
 } from 'lucide-react'
@@ -853,6 +853,18 @@ function App() {
   }
 
   function handleInspectionComplete(result) {
+    if (Array.isArray(result)) {
+      setInspections((current) => {
+        const ids = new Set(result.map((item) => item.inspection_id))
+        return [...result, ...current.filter((item) => !ids.has(item.inspection_id))]
+      })
+      if (result.length > 0) {
+        setSelectedId(result[0].inspection_id)
+        setScanResult(result[0])
+      }
+      setActiveView('scan')
+      return
+    }
     setInspections((current) => [result, ...current.filter((item) => item.inspection_id !== result.inspection_id)])
     setStats((current) => {
       const status = result.compliance?.status || 'REVIEW'
@@ -1456,8 +1468,31 @@ function InspectionTable({ inspections, onOpen, onNavigate, showInspector = fals
   )
 }
 
+function FileThumb({ file, alt }) {
+  const [thumbUrl, setThumbUrl] = useState('')
+
+  useEffect(() => {
+    if (!file) return
+    const url = URL.createObjectURL(file)
+    setThumbUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+    }
+  }, [file])
+
+  if (!thumbUrl) {
+    return (
+      <div className="gallery-thumb-placeholder">
+        <ImagePlus size={20} />
+      </div>
+    )
+  }
+  return <img src={thumbUrl} alt={alt || file.name} className="gallery-thumb-img" />
+}
+
 function Scan({ onComplete, onCancel, user, lang }) {
-  const [file, setFile] = useState(null)
+  const [files, setFiles] = useState([])
+  const [scanMode, setScanMode] = useState('multi_angle') // 'multi_angle' | 'batch'
   const [productName, setProductName] = useState('')
   const [category, setCategory] = useState('Packaged Commodity')
   const [dragging, setDragging] = useState(false)
@@ -1467,8 +1502,10 @@ function Scan({ onComplete, onCancel, user, lang }) {
   const [cameraError, setCameraError] = useState('')
   const [facingMode, setFacingMode] = useState('environment')
   const [mirrored, setMirrored] = useState(false)
+  const [justCapturedToast, setJustCapturedToast] = useState('')
   const [progress, setProgress] = useState({ extract: 'pending', check: 'pending', decide: 'pending', message: '' })
   const fileInputRef = useRef(null)
+  const addMoreInputRef = useRef(null)
   const videoRef = useRef(null)
   const streamRef = useRef(null)
 
@@ -1531,6 +1568,10 @@ function Scan({ onComplete, onCancel, user, lang }) {
   function capturePhoto() {
     const video = videoRef.current
     if (!video || !video.videoWidth) return setCameraError('Camera is still starting. Try again in a moment.')
+    if (files.length >= 10) {
+      setCameraError('Maximum 10 package images allowed.')
+      return
+    }
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
@@ -1542,26 +1583,79 @@ function Scan({ onComplete, onCancel, user, lang }) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     canvas.toBlob((blob) => {
       if (blob) {
-        setFile(new File([blob], `synaptix-capture-${Date.now()}.jpg`, { type: 'image/jpeg' }))
-        stopCamera()
+        const count = files.length + 1
+        const panelName = count === 1 ? 'Front PDP' : count === 2 ? 'Back Panel' : `Panel ${count}`
+        const newFile = new File([blob], `synaptix-capture-p${count}-${Date.now()}.jpg`, { type: 'image/jpeg' })
+        setFiles((prev) => [...prev, newFile])
+        setJustCapturedToast(`Captured ${panelName}! Snap next panel or tap Done.`)
+        setTimeout(() => setJustCapturedToast(''), 2500)
       }
-    }, 'image/jpeg', .92)
+    }, 'image/jpeg', 0.92)
+  }
+
+  function acceptFiles(newFiles) {
+    if (!newFiles || newFiles.length === 0) return
+    const incoming = Array.from(newFiles).filter((f) => f && f.type && f.type.startsWith('image/'))
+    if (incoming.length === 0) {
+      setError('Please choose JPG, PNG, or WEBP images.')
+      return
+    }
+    setError('')
+    setFiles((prev) => {
+      const combined = [...prev, ...incoming]
+      if (combined.length > 10) {
+        setError('Maximum 10 package images allowed per inspection.')
+        return combined.slice(0, 10)
+      }
+      return combined
+    })
+  }
+
+  function removeFile(indexToRemove) {
+    setFiles((prev) => prev.filter((_, idx) => idx !== indexToRemove))
+  }
+
+  function clearAllFiles() {
+    setFiles([])
+    setError('')
   }
 
   async function submit(event) {
     event.preventDefault()
-    if (!file) return setError('Choose an image or capture a label first.')
+    if (files.length === 0) return setError('Choose or capture at least one label image first.')
     setSubmitting(true)
     setError('')
-    const startedProgress = { extract: 'processing', check: 'pending', decide: 'pending', message: t('analysingLabel', lang) }
+    const isMulti = files.length > 1
+    const startedProgress = {
+      extract: 'processing',
+      check: 'pending',
+      decide: 'pending',
+      message: isMulti
+        ? (scanMode === 'batch' ? `Processing batch of ${files.length} images...` : `Analyzing ${files.length} package panels across Legal Metrology rules...`)
+        : t('analysingLabel', lang)
+    }
     activeInspectionProgress = startedProgress
     setProgress(startedProgress)
     try {
-      const result = await api.inspect({ file, productName, category })
+      let result
+      if (files.length === 1) {
+        result = await api.inspect({ file: files[0], productName, category })
+      } else if (scanMode === 'batch') {
+        const batchResults = await api.inspectBatch({ files, productName, category })
+        onComplete(batchResults)
+        return
+      } else {
+        result = await api.inspectMultiAngle({ files, productName, category })
+      }
       const extracted = Boolean(result.ocr_raw?.texts)
       const checked = Boolean(result.visual_checks)
       const decided = Boolean(result.compliance)
-      const completedProgress = { extract: extracted ? 'completed' : 'failed', check: checked ? 'completed' : 'failed', decide: decided ? 'completed' : 'failed', message: decided ? 'Inspection complete' : 'Inspection response was incomplete.' }
+      const completedProgress = {
+        extract: extracted ? 'completed' : 'failed',
+        check: checked ? 'completed' : 'failed',
+        decide: decided ? 'completed' : 'failed',
+        message: decided ? 'Inspection complete' : 'Inspection response was incomplete.'
+      }
       activeInspectionProgress = completedProgress
       setProgress(completedProgress)
       if (!extracted || !checked || !decided) throw new Error('The inspection response did not include all processing stages.')
@@ -1581,15 +1675,6 @@ function Scan({ onComplete, onCancel, user, lang }) {
     } finally { setSubmitting(false) }
   }
 
-  function acceptFile(nextFile) {
-    if (nextFile && nextFile.type.startsWith('image/')) {
-      setFile(nextFile)
-      setError('')
-    } else {
-      setError('Please choose a JPG, PNG, or WEBP image.')
-    }
-  }
-
   return (
     <div className="page scan-page">
       <PageIntro
@@ -1604,68 +1689,182 @@ function Scan({ onComplete, onCancel, user, lang }) {
             <div className="camera-viewfinder">
               <video ref={videoRef} className={mirrored ? 'mirrored' : ''} playsInline muted />
               <div className="viewfinder-frame"><i /><i /><i /><i /></div>
-              <div className="viewfinder-guide"><ScanLine size={16} /> Align the full label inside the frame</div>
+              <div className="viewfinder-guide">
+                <ScanLine size={16} />
+                <span>Align label · {files.length === 0 ? 'Capture Panel 1 (Front PDP)' : files.length === 1 ? 'Capture Panel 2 (Back / Info)' : `Capture Panel ${files.length + 1}`}</span>
+              </div>
+              {justCapturedToast && (
+                <div className="viewfinder-toast">
+                  <CheckCircle2 size={15} /> <span>{justCapturedToast}</span>
+                </div>
+              )}
+              {files.length > 0 && (
+                <div className="viewfinder-counter-badge">
+                  <Camera size={13} /> {files.length} {files.length === 1 ? 'Panel' : 'Panels'} Captured
+                </div>
+              )}
               <div className="camera-controls">
                 <button type="button" className="camera-control" onClick={stopCamera} title="Close camera"><StopCircle size={18} /> Close</button>
                 <button type="button" className="camera-control" onClick={switchCamera} title="Flip camera (front / back)"><SwitchCamera size={18} /> {facingMode === 'environment' ? 'Rear' : 'Front'}</button>
                 <button type="button" className="capture-button" onClick={capturePhoto} aria-label="Capture label photo"><Camera size={22} /></button>
+                {files.length > 0 && (
+                  <button type="button" className="camera-control done-btn" onClick={stopCamera} title="Finish and review captured panels"><Check size={18} /> Done ({files.length})</button>
+                )}
                 <button type="button" className="camera-control" onClick={() => setMirrored((m) => !m)} title="Toggle mirror effect"><FlipHorizontal size={18} /> {mirrored ? 'Mirrored' : 'Normal'}</button>
               </div>
             </div>
           ) : (
             <>
-              <div
-                className={`upload-zone ${dragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`}
-                onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}
-                onClick={() => {
-                  if (!file) fileInputRef.current?.click()
-                }}
-              >
-                <input
-                  ref={fileInputRef}
-                  id="label-image"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  style={{ display: 'none' }}
-                  onChange={(event) => acceptFile(event.target.files[0])}
-                />
-                {file ? (
-                  <div className="file-preview" onClick={(e) => e.stopPropagation()}>
-                    <div className="file-preview-icon"><ImagePlus size={24} /></div>
-                    <div className="file-preview-info">
-                      <strong>{file.name}</strong>
-                      <span>{(file.size / 1024 / 1024).toFixed(2)} MB · Ready for statutory analysis</span>
-                    </div>
-                    <button type="button" className="remove-file-btn" onClick={() => setFile(null)} aria-label="Remove file"><X size={16} /></button>
-                  </div>
-                ) : (
+              {files.length === 0 ? (
+                <div
+                  className={`upload-zone ${dragging ? 'dragging' : ''}`}
+                  onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFiles(event.dataTransfer.files) }}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input
+                    ref={fileInputRef}
+                    id="label-image"
+                    type="file"
+                    multiple
+                    accept="image/png,image/jpeg,image/webp"
+                    style={{ display: 'none' }}
+                    onChange={(event) => acceptFiles(event.target.files)}
+                  />
                   <div className="upload-zone-content">
                     <div className="upload-icon-halo">
                       <UploadCloud size={32} />
                     </div>
                     <strong className="upload-title">{t('dropLabelHere', lang)}</strong>
                     <div className="upload-subtitle">
-                      <span>{t('orBrowse', lang)}</span>
+                      <span>Drag & drop multiple package panels or</span>
                       <span className="browse-pill-btn">Browse files</span>
                     </div>
-                    <span className="upload-spec-badge">JPG, PNG, WEBP up to 10 MB · High-res recommended</span>
+                    <span className="upload-spec-badge">Upload Front, Back & Side panels · JPG, PNG, WEBP up to 10 files</span>
                   </div>
-                )}
-              </div>
-              <div className="scan-actions-row">
-                <button type="button" className="camera-launch-btn" onClick={startCamera}>
-                  <Camera size={16} />
-                  <span>{t('useLiveCamera', lang)}</span>
-                </button>
-              </div>
+                </div>
+              ) : (
+                <div className="multi-image-gallery">
+                  <div className="gallery-header">
+                    <div className="gallery-title">
+                      <Boxes size={18} />
+                      <strong>Package Panels & Angles ({files.length}/10)</strong>
+                    </div>
+                    <button type="button" className="gallery-clear-btn" onClick={clearAllFiles}>
+                      <Trash2 size={13} /> Clear All
+                    </button>
+                  </div>
+                  <div className="gallery-grid">
+                    {files.map((f, idx) => (
+                      <div className="gallery-card" key={`${f.name}-${idx}`}>
+                        <div className="gallery-thumb-wrap">
+                          <FileThumb file={f} alt={f.name} />
+                          <span className="gallery-panel-badge">
+                            {idx === 0 ? '1. Front PDP' : idx === 1 ? '2. Back Info' : `Panel ${idx + 1}`}
+                          </span>
+                          <button
+                            type="button"
+                            className="gallery-remove-btn"
+                            onClick={() => removeFile(idx)}
+                            title="Remove panel"
+                            aria-label="Remove panel image"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                        <div className="gallery-card-info">
+                          <span className="gallery-card-name" title={f.name}>{f.name}</span>
+                          <span className="gallery-card-size">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                        </div>
+                      </div>
+                    ))}
+                    {files.length < 10 && (
+                      <div
+                        className="gallery-add-card"
+                        onClick={() => addMoreInputRef.current?.click()}
+                        title="Upload another panel image"
+                      >
+                        <div className="add-icon-circle"><Plus size={18} /></div>
+                        <span>Add Panel</span>
+                        <small>Browse file</small>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    ref={addMoreInputRef}
+                    type="file"
+                    multiple
+                    accept="image/png,image/jpeg,image/webp"
+                    style={{ display: 'none' }}
+                    onChange={(e) => acceptFiles(e.target.files)}
+                  />
+                  <div className="gallery-actions">
+                    <button type="button" className="camera-launch-btn" onClick={startCamera}>
+                      <Camera size={16} />
+                      <span>Capture More Panels with Camera</span>
+                    </button>
+                    <button type="button" className="button secondary pill-cta-sm" onClick={() => addMoreInputRef.current?.click()}>
+                      <Plus size={15} />
+                      <span>Upload More Files</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {files.length === 0 && (
+                <div className="scan-actions-row">
+                  <button type="button" className="camera-launch-btn" onClick={startCamera}>
+                    <Camera size={16} />
+                    <span>{t('useLiveCamera', lang)}</span>
+                  </button>
+                </div>
+              )}
+
+              {files.length > 1 && (
+                <div className="scan-mode-card">
+                  <div className="scan-mode-header">
+                    <div className="eyebrow"><Boxes size={13} /> Multi-Image Scanning Option</div>
+                    <h3>Select Inspection Mode</h3>
+                  </div>
+                  <div className="scan-mode-options">
+                    <button
+                      type="button"
+                      className={`scan-mode-btn ${scanMode === 'multi_angle' ? 'active' : ''}`}
+                      onClick={() => setScanMode('multi_angle')}
+                    >
+                      <div className="scan-mode-btn-header">
+                        <ShieldCheck size={18} />
+                        <strong>Unified Multi-Panel Package Scan (Recommended)</strong>
+                        <span className="scan-mode-tag">Unified</span>
+                      </div>
+                      <p>
+                        Combines Front, Back & Side panels of 1 product into a single, comprehensive Legal Metrology certificate. Resolves missing declarations (e.g. MRP on back, Brand on front).
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      className={`scan-mode-btn ${scanMode === 'batch' ? 'active' : ''}`}
+                      onClick={() => setScanMode('batch')}
+                    >
+                      <div className="scan-mode-btn-header">
+                        <Boxes size={18} />
+                        <strong>Batch Inspection</strong>
+                        <span className="scan-mode-tag alt">Individual</span>
+                      </div>
+                      <p>
+                        Inspects each uploaded image independently as a distinct product in parallel and returns individual compliance reports.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
           {cameraError && <div className="form-error camera-error"><Camera size={16} />{cameraError}</div>}
           <div className="scan-note">
             <ShieldCheck size={17} />
-            <span>The image is processed by the Synaptix inspection pipeline. No source images are sent anywhere except your configured backend.</span>
+            <span>The images are processed by the Synaptix inspection pipeline. No source images are sent anywhere except your configured backend.</span>
           </div>
         </div>
         <aside className="scan-sidebar">
@@ -1704,7 +1903,7 @@ function Scan({ onComplete, onCancel, user, lang }) {
               {submitting ? (
                 <><LoaderCircle className="spinner" size={17} /> <span>{t('analysingLabel', lang)}</span></>
               ) : (
-                <><ClipboardCheck size={17} /> <span>{t('runInspection', lang)}</span> <ArrowUpRight size={15} /></>
+                <><ClipboardCheck size={17} /> <span>{files.length > 1 ? (scanMode === 'batch' ? `Run Batch (${files.length} Products)` : `Run Unified Scan (${files.length} Panels)`) : t('runInspection', lang)}</span> <ArrowUpRight size={15} /></>
               )}
             </button>
           </div>
@@ -2361,11 +2560,15 @@ function Detail({ inspection, onBack, onReport, lang }) {
     return path.startsWith('http') ? path : `${(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')}${path}`
   }
 
-  const rawImageUrl = resolveMediaUrl(fullInspection.image_url)
-  const overlayImageUrl = resolveMediaUrl(fullInspection.annotated_image_url || visual.overlay_image)
-  const hasOverlay = Boolean(overlayImageUrl)
-  const hasRaw = Boolean(rawImageUrl)
-  const displayedImageUrl = (imageMode === 'overlay' && hasOverlay) ? overlayImageUrl : (rawImageUrl || overlayImageUrl)
+  const panelImageUrls = (fullInspection.image_urls?.length ? fullInspection.image_urls : (visual.image_urls?.length ? visual.image_urls : (fullInspection.image_url ? [fullInspection.image_url] : [])))
+  const panelOverlayUrls = (fullInspection.annotated_image_urls?.length ? fullInspection.annotated_image_urls : (visual.annotated_image_urls?.length ? visual.annotated_image_urls : (fullInspection.annotated_image_url || visual.overlay_image ? [fullInspection.annotated_image_url || visual.overlay_image] : [])))
+  const [activePanelIdx, setActivePanelIdx] = useState(0)
+
+  const currentRawUrl = resolveMediaUrl(panelImageUrls[activePanelIdx] || panelImageUrls[0])
+  const currentOverlayUrl = resolveMediaUrl(panelOverlayUrls[activePanelIdx] || panelOverlayUrls[0])
+  const hasOverlay = Boolean(currentOverlayUrl)
+  const hasRaw = Boolean(currentRawUrl)
+  const displayedImageUrl = (imageMode === 'overlay' && hasOverlay) ? currentOverlayUrl : (currentRawUrl || currentOverlayUrl)
 
   return (
     <div className="page">
@@ -2423,9 +2626,30 @@ function Detail({ inspection, onBack, onReport, lang }) {
           </div>
           {displayedImageUrl && (
             <div className="detail-image-section">
+              {panelImageUrls.length > 1 && (
+                <div className="multi-panel-bar">
+                  <div className="multi-panel-label">
+                    <Boxes size={14} />
+                    <span>Package Panels ({panelImageUrls.length})</span>
+                  </div>
+                  <div className="multi-panel-tabs">
+                    {panelImageUrls.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`multi-panel-tab ${activePanelIdx === idx ? 'active' : ''}`}
+                        onClick={() => setActivePanelIdx(idx)}
+                      >
+                        {idx === 0 ? 'Panel 1: Front' : idx === 1 ? 'Panel 2: Back' : `Panel ${idx + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="detail-image-header">
                 <div className="eyebrow">
                   {imageMode === 'overlay' && hasOverlay ? t('aiDetectionOverlay', lang) : t('originalPhoto', lang)}
+                  {panelImageUrls.length > 1 ? ` · Panel ${activePanelIdx + 1} of ${panelImageUrls.length}` : ''}
                 </div>
                 {hasOverlay && hasRaw && (
                   <div className="image-mode-toggle" role="group" aria-label="Label image view mode">

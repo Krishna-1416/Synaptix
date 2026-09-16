@@ -79,6 +79,8 @@ class InspectionResult(BaseModel):
     image_id: Optional[str] = None
     image_url: Optional[str] = None
     annotated_image_url: Optional[str] = None
+    image_urls: List[str] = Field(default_factory=list, description="List of all panel/angle image URLs")
+    annotated_image_urls: List[str] = Field(default_factory=list, description="List of all panel overlay URLs")
     product: ProductInfo = Field(default_factory=ProductInfo)
     ocr_raw: Optional[OCRRaw] = None
     fields: MandatoryFields = Field(default_factory=MandatoryFields)

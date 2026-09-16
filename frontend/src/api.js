@@ -67,6 +67,20 @@ export const api = {
     if (category) formData.append('category', category)
     return (await request('/api/inspect', { method: 'POST', body: formData })).json()
   },
+  inspectBatch: async ({ files, productName, category }) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+    if (productName) formData.append('product_name', productName)
+    if (category) formData.append('category', category)
+    return (await request('/api/inspect/batch', { method: 'POST', body: formData })).json()
+  },
+  inspectMultiAngle: async ({ files, productName, category }) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+    if (productName) formData.append('product_name', productName)
+    if (category) formData.append('category', category)
+    return (await request('/api/inspect/multi-angle', { method: 'POST', body: formData })).json()
+  },
   updateInspection: async (id, payload) => (await request(`/api/inspections/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload)

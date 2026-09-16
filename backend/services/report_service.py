@@ -132,13 +132,20 @@ def generate_compliance_pdf(inspection: InspectionResult) -> bytes:
     story.append(meta_table)
     story.append(Spacer(1, 15))
 
-    # Include the original label as evidence in the generated certificate.
-    evidence = _load_evidence_image(inspection.image_url)
-    if evidence:
-        story.append(Paragraph("Evidence Image", section_heading))
-        evidence_image = Image(evidence, width=480, height=300, kind="proportional")
-        story.append(evidence_image)
-        story.append(Spacer(1, 15))
+    # Include the original label(s) as evidence in the generated certificate.
+    image_list = inspection.image_urls if (inspection.image_urls and len(inspection.image_urls) > 0) else ([inspection.image_url] if inspection.image_url else [])
+    if image_list:
+        heading_text = f"Evidence Images ({len(image_list)} Panels Analyzed)" if len(image_list) > 1 else "Evidence Image"
+        story.append(Paragraph(heading_text, section_heading))
+        for idx, img_url in enumerate(image_list[:4], 1):
+            evidence = _load_evidence_image(img_url)
+            if evidence:
+                if len(image_list) > 1:
+                    story.append(Paragraph(f"<b>Panel {idx} Evidence:</b>", normal_style))
+                evidence_image = Image(evidence, width=480, height=260, kind="proportional")
+                story.append(evidence_image)
+                story.append(Spacer(1, 8))
+        story.append(Spacer(1, 10))
 
     # Declarations Table (Rule 6)
     story.append(Paragraph("1. Mandatory Declarations Audit (Rule 6)", section_heading))

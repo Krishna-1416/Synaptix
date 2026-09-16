@@ -75,10 +75,16 @@ def _get_ownership_column(admin_client) -> str:
 
 
 def _normalize_inspection_row(row: Dict[str, Any]) -> InspectionResult:
-    """Ensure row has both annotated_image_url and user_id mapped for frontend / client consumers."""
+    """Ensure row has both annotated_image_url, image_urls, and user_id mapped for frontend / client consumers."""
     normalized = dict(row)
     if not normalized.get("annotated_image_url"):
         normalized["annotated_image_url"] = (normalized.get("visual_checks") or {}).get("overlay_image")
+    if not normalized.get("image_urls"):
+        v_urls = (normalized.get("visual_checks") or {}).get("image_urls")
+        normalized["image_urls"] = v_urls if v_urls else ([normalized["image_url"]] if normalized.get("image_url") else [])
+    if not normalized.get("annotated_image_urls"):
+        v_annos = (normalized.get("visual_checks") or {}).get("annotated_image_urls")
+        normalized["annotated_image_urls"] = v_annos if v_annos else ([normalized["annotated_image_url"]] if normalized.get("annotated_image_url") else [])
     if not normalized.get("user_id") and normalized.get("inspector_id"):
         normalized["user_id"] = str(normalized["inspector_id"])
     return InspectionResult(**normalized)
@@ -281,6 +287,8 @@ class InspectionService:
                 image_id=image_id,
                 image_url=image_url,
                 annotated_image_url=annotated_image_url,
+                image_urls=[image_url] if image_url else [],
+                annotated_image_urls=[annotated_image_url] if annotated_image_url else [],
                 product=ProductInfo(
                     name=product_name or filename.rsplit('.', 1)[0].replace('_', ' ').title(),
                     category=product_category
@@ -305,11 +313,170 @@ class InspectionService:
             return result
 
     @staticmethod
+    async def process_multi_angle_inspection(
+        images: List[Tuple[bytes, str]],
+        product_name: Optional[str] = None,
+        product_category: Optional[str] = "Packaged Commodity",
+        inspector_id: Optional[str] = None
+    ) -> InspectionResult:
+        """
+        Executes multi-image inspection for a single product across multiple panels/angles
+        (e.g., Front Principal Display Panel, Back Declaration Panel, Side Panels):
+        1. Preprocesses and executes OCR & visual checks on each panel.
+        2. Aggregates all OCR tokens across all panels into one record.
+        3. Merges detected Legal Metrology declarations across panels.
+        4. Auto-calculates statutory Unit Sale Price (USP) if MRP and Net Quantity are present across panels.
+        5. Evaluates Legal Metrology compliance across the merged product declarations.
+        6. Persists the consolidated inspection record with all panel image URLs.
+        """
+        if not images:
+            raise ValueError("No images provided for inspection.")
+
+        if len(images) == 1:
+            content, fname = images[0]
+            return await InspectionService.process_image_inspection(
+                file_bytes=content,
+                filename=fname,
+                product_name=product_name,
+                product_category=product_category,
+                inspector_id=inspector_id
+            )
+
+        inspection_id = f"INS-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+
+        uploaded_urls: List[str] = []
+        uploaded_overlay_urls: List[str] = []
+        all_ocr_items: List[OCRTextItem] = []
+        panel_fields_list: List[MandatoryFields] = []
+        primary_image_id: Optional[str] = None
+        primary_visual: Optional[VisualChecks] = None
+
+        for idx, (content, fname) in enumerate(images):
+            async with _get_inspection_semaphore():
+                # 1. Upload panel image
+                img_id, img_url = await upload_label_image(content, fname)
+                if idx == 0:
+                    primary_image_id = img_id
+                if img_url:
+                    uploaded_urls.append(img_url)
+
+                # 2. CV Preprocessing
+                preprocessed_bytes = await asyncio.to_thread(_run_cv_preprocess, content)
+
+                # 3. OCR Pipeline
+                ocr_raw, fields = await asyncio.to_thread(_run_ocr_pipeline, preprocessed_bytes, fname)
+                all_ocr_items.extend(ocr_raw.texts)
+                panel_fields_list.append(fields)
+
+                # 4. CV Visual Checks
+                visual_checks, overlay_bytes = await asyncio.to_thread(_run_cv_visual_checks, preprocessed_bytes)
+                if idx == 0:
+                    primary_visual = visual_checks
+
+                if overlay_bytes:
+                    try:
+                        clean_name = f"annotated_p{idx+1}_{fname.rsplit('.', 1)[0]}.jpg"
+                        _, annotated_url = await upload_label_image(overlay_bytes, clean_name)
+                        if annotated_url:
+                            uploaded_overlay_urls.append(annotated_url)
+                            if idx == 0:
+                                visual_checks.overlay_image = annotated_url
+                    except Exception as e:
+                        logger.warning(f"Failed to upload overlay for panel {idx+1}: {e}")
+
+                del preprocessed_bytes
+                if overlay_bytes:
+                    del overlay_bytes
+
+        gc.collect()
+
+        # 5. Merge declarations across panels (prioritizing longer/more complete text)
+        merged_dict: Dict[str, Any] = {}
+        field_keys = [
+            "manufacturer", "packer", "importer", "country_of_origin",
+            "generic_name", "net_quantity", "manufacture_date", "best_before",
+            "mrp", "unit_sale_price", "consumer_care", "is_imported",
+            "is_multi_product", "is_gm_food", "is_ecommerce", "veg_nonveg_mark"
+        ]
+        for key in field_keys:
+            best_val = None
+            for p_fields in panel_fields_list:
+                val = getattr(p_fields, key, None)
+                if val:
+                    if best_val is None:
+                        best_val = val
+                    elif isinstance(val, str) and isinstance(best_val, str):
+                        if len(val.strip()) > len(best_val.strip()):
+                            best_val = val
+            merged_dict[key] = best_val
+
+        # Auto-calculate USP if missing and both MRP + Net Quantity are available across panels
+        if not merged_dict.get("unit_sale_price") and merged_dict.get("mrp") and merged_dict.get("net_quantity"):
+            from ocr.field_extractor import LegalFieldExtractor
+            suggested = LegalFieldExtractor.calculate_suggested_usp(
+                merged_dict["mrp"],
+                merged_dict["net_quantity"]
+            )
+            if suggested and suggested.get("primary"):
+                merged_dict["unit_sale_price"] = f"{suggested['primary']} (Calculated)"
+
+        merged_fields = MandatoryFields(**merged_dict)
+
+        # 6. Combined visual checks
+        combined_visual = primary_visual or VisualChecks(
+            readability="GOOD",
+            font_height=2.0,
+            placement=f"Multi-panel ({len(images)} panels analyzed: Front, Back & Information Panels)",
+            dpi=150.0,
+        )
+        combined_visual.placement = f"Multi-panel ({len(images)} panels analyzed: Front, Back & Information Panels)"
+        if uploaded_overlay_urls:
+            combined_visual.overlay_image = uploaded_overlay_urls[0]
+
+        # 7. Evaluate rule compliance across merged declarations
+        ocr_confidences = [item.confidence for item in all_ocr_items if item.confidence > 0]
+        compliance = evaluate_compliance(
+            merged_fields.model_dump(),
+            combined_visual.model_dump(),
+            ocr_confidences=ocr_confidences,
+            product_category=product_category,
+        )
+
+        primary_url = uploaded_urls[0] if uploaded_urls else None
+        primary_annotated_url = uploaded_overlay_urls[0] if uploaded_overlay_urls else None
+
+        result = InspectionResult(
+            inspection_id=inspection_id,
+            image_id=primary_image_id,
+            image_url=primary_url,
+            annotated_image_url=primary_annotated_url,
+            image_urls=uploaded_urls,
+            annotated_image_urls=uploaded_overlay_urls,
+            product=ProductInfo(
+                name=product_name or (images[0][1].rsplit('.', 1)[0].replace('_', ' ').title() if images else "Multi-Panel Product"),
+                category=product_category,
+            ),
+            ocr_raw=OCRRaw(texts=all_ocr_items),
+            fields=merged_fields,
+            visual_checks=combined_visual,
+            compliance=compliance,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            user_id=inspector_id,
+        )
+
+        await InspectionService.save_inspection(result, inspector_id)
+        return result
+
+    @staticmethod
     async def save_inspection(inspection: InspectionResult, inspector_id: Optional[str] = None) -> bool:
         """Persists inspection record to Supabase or memory fallback."""
         visual_data = inspection.visual_checks.model_dump() if inspection.visual_checks else {}
         if inspection.annotated_image_url and not visual_data.get("overlay_image"):
             visual_data["overlay_image"] = inspection.annotated_image_url
+        if inspection.image_urls:
+            visual_data["image_urls"] = inspection.image_urls
+        if inspection.annotated_image_urls:
+            visual_data["annotated_image_urls"] = inspection.annotated_image_urls
 
         db_id = _database_inspector_id(inspector_id or inspection.user_id)
 
