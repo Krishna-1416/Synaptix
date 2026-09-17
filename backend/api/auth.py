@@ -78,12 +78,13 @@ async def require_auth(
         admin_client = get_supabase_admin_client()
         if admin_client:
             try:
-                profile = admin_client.table("profiles").select("full_name,role").eq("id", res.user.id).maybe_single().execute()
-                if profile.data:
-                    meta = {**meta, **profile.data}
-                    role = profile.data.get("role", role)
+                profile_res = admin_client.table("profiles").select("full_name,role").eq("id", res.user.id).maybe_single().execute()
+                profile_data = getattr(profile_res, "data", None) if profile_res else None
+                if profile_data and isinstance(profile_data, dict):
+                    meta = {**meta, **profile_data}
+                    role = profile_data.get("role", role)
             except Exception as profile_error:
-                logger.warning(f"Profile lookup failed for {res.user.id}: {profile_error}")
+                logger.debug(f"Profile lookup skipped/fallback for {res.user.id}: {profile_error}")
         return UserProfile(
             id=res.user.id,
             email=res.user.email,
@@ -274,12 +275,13 @@ async def login_user(payload: LoginRequest):
         admin = get_supabase_admin_client()
         if admin and user_data:
             try:
-                profile = admin.table("profiles").select("full_name,role").eq("id", user_data.id).maybe_single().execute()
-                if profile.data:
-                    user_meta = {**user_meta, **profile.data}
-                    resolved_role = profile.data.get("role", resolved_role)
+                profile_res = admin.table("profiles").select("full_name,role").eq("id", user_data.id).maybe_single().execute()
+                profile_data = getattr(profile_res, "data", None) if profile_res else None
+                if profile_data and isinstance(profile_data, dict):
+                    user_meta = {**user_meta, **profile_data}
+                    resolved_role = profile_data.get("role", resolved_role)
             except Exception as profile_error:
-                logger.warning(f"Profile lookup failed after login: {profile_error}")
+                logger.debug(f"Profile lookup skipped/fallback after login: {profile_error}")
 
         return AuthResponse(
             access_token=res.session.access_token,
@@ -344,6 +346,8 @@ async def exchange_code(code: str, role: Optional[str] = None):
         normalized_role = "admin" if assigned_role in {"admin", "administrator"} else "inspector"
 
         clean_name = meta.get("full_name") or meta.get("name") or (user.email.split("@")[0] if user.email else "Inspector")
+        # Ensure profile row exists (Database trigger creates it automatically, fallback via backend)
+        profile_upsert_success = False
         if admin_client:
             try:
                 admin_client.table("profiles").upsert({
@@ -351,9 +355,26 @@ async def exchange_code(code: str, role: Optional[str] = None):
                     "full_name": clean_name,
                     "role": normalized_role,
                 }).execute()
+                profile_upsert_success = True
+            except Exception as admin_err:
+                logger.debug(f"Admin client profile upsert skipped: {admin_err}")
+
+        # Fallback to active user client if admin client lacks service_role privileges
+        if not profile_upsert_success and active_client:
+            try:
+                active_client.table("profiles").upsert({
+                    "id": user.id,
+                    "full_name": clean_name,
+                    "role": normalized_role,
+                }).execute()
+            except Exception as active_err:
+                logger.debug(f"OAuth profile row handled by database trigger or fallback skipped: {active_err}")
+
+        if admin_client:
+            try:
                 admin_client.auth.admin.update_user_by_id(user.id, {"user_metadata": {"role": normalized_role}})
-            except Exception as e:
-                logger.warning(f"Failed to upsert profile during OAuth exchange: {e}")
+            except Exception as meta_err:
+                logger.debug(f"Admin user metadata sync skipped: {meta_err}")
 
         return {
             "access_token": res.session.access_token,

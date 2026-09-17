@@ -74,13 +74,13 @@ app.include_router(dashboard_router, prefix=settings.API_V1_STR)
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 
 
-@app.get("/", include_in_schema=False)
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def root():
     """Redirect root access directly to interactive documentation."""
     return RedirectResponse(url="/docs")
 
 
-@app.get("/api/health", tags=["System"])
+@app.api_route("/api/health", methods=["GET", "HEAD"], tags=["System"])
 def health_check():
     """System health check endpoint verifying database connectivity."""
     db_status = "connected" if get_supabase_admin_client() is not None else "mock_mode"
@@ -92,7 +92,7 @@ def health_check():
     }
 
 
-@app.get("/health", tags=["System"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["System"])
 def public_health_check():
     """Deployment health endpoint for Render and external uptime checks."""
     return health_check()

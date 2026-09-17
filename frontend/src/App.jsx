@@ -2009,7 +2009,7 @@ function InteractiveComplianceChart({ score, rules, lang }) {
   const [hovered, setHovered] = useState(null)
   const safeScore = score != null ? Math.max(0, Math.min(100, score)) : (rules.obeyed.length ? Math.round((rules.obeyed.length / Math.max(rules.obeyed.length + rules.notObeyed.length, 1)) * 100) : 0)
   const disobeyedPct = Math.max(0, 100 - safeScore)
-  const radius = 42
+  const radius = 53
   const circumference = 2 * Math.PI * radius
   const obeyedOffset = circumference * (1 - safeScore / 100)
 
@@ -2023,11 +2023,19 @@ function InteractiveComplianceChart({ score, rules, lang }) {
       </div>
       <div className="pie-chart-body">
         <div className="pie-svg-container">
-          <svg className="pie-svg" viewBox="0 0 110 110" role="img" aria-label={`Rule Compliance: ${safeScore}/100`}>
+          <svg className="pie-svg" viewBox="0 0 136 136" role="img" aria-label={`Rule Compliance: ${safeScore}/100`}>
+            <circle
+              className="pie-arc track-arc"
+              cx="68"
+              cy="68"
+              r={radius}
+              strokeDasharray={circumference}
+              strokeDashoffset={0}
+            />
             <circle
               className={`pie-arc disobeyed-arc ${hovered === 'disobeyed' ? 'hovered' : ''}`}
-              cx="55"
-              cy="55"
+              cx="68"
+              cy="68"
               r={radius}
               strokeDasharray={circumference}
               strokeDashoffset={0}
@@ -2035,8 +2043,8 @@ function InteractiveComplianceChart({ score, rules, lang }) {
             />
             <circle
               className={`pie-arc obeyed-arc ${hovered === 'obeyed' ? 'hovered' : ''}`}
-              cx="55"
-              cy="55"
+              cx="68"
+              cy="68"
               r={radius}
               strokeDasharray={circumference}
               strokeDashoffset={obeyedOffset}
@@ -2046,7 +2054,6 @@ function InteractiveComplianceChart({ score, rules, lang }) {
           <div className="pie-center-content">
             <span className="pie-big-number">{safeScore}</span>
             <span className="pie-denominator">/ 100</span>
-            <span className="pie-subtext">{t('scoreOutOf100', lang)}</span>
           </div>
         </div>
         <div className="pie-legend">
@@ -2094,7 +2101,7 @@ function InteractiveComplianceChart({ score, rules, lang }) {
 function InteractiveConfidenceChart({ confidence, ocrCount, lang }) {
   const [hovered, setHovered] = useState(false)
   const safeConfidence = confidence != null ? Math.max(0, Math.min(100, confidence)) : 0
-  const radius = 42
+  const radius = 53
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - safeConfidence / 100)
   const certaintyLabel = safeConfidence >= 80 ? 'High Certainty' : safeConfidence >= 60 ? 'Moderate' : 'Low Certainty'
@@ -2107,19 +2114,19 @@ function InteractiveConfidenceChart({ confidence, ocrCount, lang }) {
       </div>
       <div className="pie-chart-body">
         <div className="pie-svg-container">
-          <svg className="pie-svg" viewBox="0 0 110 110" role="img" aria-label={`Result Confidence: ${safeConfidence}%`}>
+          <svg className="pie-svg" viewBox="0 0 136 136" role="img" aria-label={`Result Confidence: ${safeConfidence}%`}>
             <circle
               className="pie-arc track-arc"
-              cx="55"
-              cy="55"
+              cx="68"
+              cy="68"
               r={radius}
               strokeDasharray={circumference}
               strokeDashoffset={0}
             />
             <circle
               className={`pie-arc confidence-arc ${hovered ? 'hovered' : ''}`}
-              cx="55"
-              cy="55"
+              cx="68"
+              cy="68"
               r={radius}
               strokeDasharray={circumference}
               strokeDashoffset={offset}
@@ -2127,7 +2134,7 @@ function InteractiveConfidenceChart({ confidence, ocrCount, lang }) {
           </svg>
           <div className="pie-center-content">
             <span className="pie-big-number">{safeConfidence}%</span>
-            <span className="pie-subtext">{t('resultConfidence', lang)}</span>
+            <span className="pie-denominator">certainty</span>
           </div>
         </div>
         <div className="pie-legend">
@@ -2575,7 +2582,7 @@ function Detail({ inspection, onBack, onReport, lang }) {
   return (
     <div className="page">
       <button className="back-button" onClick={onBack}>
-        <ChevronRight size={16} className="back-chevron" /> {t('backToHistory', lang)}
+        <ArrowLeft size={15} /> {t('backToHistory', lang)}
       </button>
       <PageIntro
         eyebrow={fullInspection.inspection_id}
@@ -2603,27 +2610,47 @@ function Detail({ inspection, onBack, onReport, lang }) {
           </div>
           {compliance.violations?.length > 0 && (
             <div className="violations">
-              <div className="eyebrow">{t('findings', lang)}</div>
-              {compliance.violations.map((violation) => (
-                <div className="violation" key={violation}>
-                  <XCircle size={16} />
-                  {violation}
-                </div>
-              ))}
+              <div className="eyebrow findings-eyebrow">{t('findings', lang)}</div>
+              <div className="violations-list">
+                {compliance.violations.map((violation) => {
+                  const colonIdx = violation.indexOf(':')
+                  const hasPrefix = colonIdx > -1
+                  const title = hasPrefix ? violation.slice(0, colonIdx).trim() : null
+                  const desc = hasPrefix ? violation.slice(colonIdx + 1).trim() : violation
+
+                  return (
+                    <div className="violation violation-item" key={violation}>
+                      <div className="violation-icon-wrapper">
+                        <XCircle size={16} className="violation-icon" />
+                      </div>
+                      <div className="violation-text-wrapper">
+                        {title && <div className="violation-clause">{title}</div>}
+                        <div className="violation-detail">{desc}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
           <div className="visual-summary">
-            <div>
-              <span>{t('readability', lang)}</span>
-              <strong>{visual.readability || 'Not evaluated'}</strong>
+            <div className="visual-stat-card">
+              <span className="visual-stat-label">{t('readability', lang)}</span>
+              <strong className={`visual-stat-value ${String(visual.readability || '').toUpperCase().includes('GOOD') ? 'stat-good' : ''}`}>
+                {visual.readability || 'Not evaluated'}
+              </strong>
             </div>
-            <div>
-              <span>{t('fontHeight', lang)}</span>
-              <strong>{visual.font_height ? `${visual.font_height} mm` : 'Not detected'}</strong>
+            <div className="visual-stat-card">
+              <span className="visual-stat-label">{t('fontHeight', lang)}</span>
+              <strong className="visual-stat-value">
+                {visual.font_height ? `${visual.font_height} mm` : 'Not detected'}
+              </strong>
             </div>
-            <div>
-              <span>{t('placement', lang)}</span>
-              <strong>{visual.placement || 'Not evaluated'}</strong>
+            <div className="visual-stat-card">
+              <span className="visual-stat-label">{t('placement', lang)}</span>
+              <strong className="visual-stat-value">
+                {visual.placement || 'Not evaluated'}
+              </strong>
             </div>
           </div>
           {displayedImageUrl && (
