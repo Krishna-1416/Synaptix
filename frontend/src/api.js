@@ -25,6 +25,63 @@ async function request(path, options = {}) {
   return response
 }
 
+export async function compressImageForInspection(file, maxDimension = 1800, quality = 0.88) {
+  if (!file || !file.type || !file.type.startsWith('image/')) return file
+  // If file is already reasonably sized (< 1.2 MB), skip canvas re-encoding
+  if (file.size < 1.2 * 1024 * 1024) return file
+
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      let { width, height } = img
+      if (width <= maxDimension && height <= maxDimension && file.size < 2 * 1024 * 1024) {
+        return resolve(file)
+      }
+
+      if (width > height) {
+        if (width > maxDimension) {
+          height = Math.round((height * maxDimension) / width)
+          width = maxDimension
+        }
+      } else {
+        if (height > maxDimension) {
+          width = Math.round((width * maxDimension) / height)
+          height = maxDimension
+        }
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, width, height)
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob || blob.size >= file.size) {
+            resolve(file)
+          } else {
+            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            })
+            resolve(compressedFile)
+          }
+        },
+        'image/jpeg',
+        quality
+      )
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(file)
+    }
+    img.src = url
+  })
+}
+
 export const api = {
   login: async ({ email, password }) => (await request('/api/auth/login', {
     method: 'POST',
@@ -61,22 +118,25 @@ export const api = {
   },
   getInspection: async (id) => (await request(`/api/inspections/${encodeURIComponent(id)}`)).json(),
   inspect: async ({ file, productName, category }) => {
+    const optimizedFile = await compressImageForInspection(file)
     const formData = new FormData()
-    formData.append('file', file)
+    formData.append('file', optimizedFile)
     if (productName) formData.append('product_name', productName)
     if (category) formData.append('category', category)
     return (await request('/api/inspect', { method: 'POST', body: formData })).json()
   },
   inspectBatch: async ({ files, productName, category }) => {
+    const optimizedFiles = await Promise.all((files || []).map((f) => compressImageForInspection(f)))
     const formData = new FormData()
-    files.forEach((file) => formData.append('files', file))
+    optimizedFiles.forEach((file) => formData.append('files', file))
     if (productName) formData.append('product_name', productName)
     if (category) formData.append('category', category)
     return (await request('/api/inspect/batch', { method: 'POST', body: formData })).json()
   },
   inspectMultiAngle: async ({ files, productName, category }) => {
+    const optimizedFiles = await Promise.all((files || []).map((f) => compressImageForInspection(f)))
     const formData = new FormData()
-    files.forEach((file) => formData.append('files', file))
+    optimizedFiles.forEach((file) => formData.append('files', file))
     if (productName) formData.append('product_name', productName)
     if (category) formData.append('category', category)
     return (await request('/api/inspect/multi-angle', { method: 'POST', body: formData })).json()

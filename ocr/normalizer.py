@@ -75,6 +75,23 @@ class TokenNormalizer:
             flags=re.IGNORECASE,
         )
 
+        # Fix collapsed unit numbers (e.g. 25STICKS -> 25 STICKS, 10TABLETS -> 10 TABLETS)
+        cleaned = re.sub(
+            r"\b(\d+)\s*(STICKS?|MATCHES?|TABLETS?|CAPSULES?|SHEETS?|WIPES?|POUCHES?|ROLLS?|BAGS?|TUBES?|BARS?|PACKS?|PCS|NOS|UNITS?)\b",
+            r"\1 \2",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+        # Normalize dot-matrix phone / contact typos (e.g. Pi:1800... -> Ph: 1800...)
+        cleaned = re.sub(r"\bP[in1]\s*:\s*(\d)", r"Ph: \1", cleaned, flags=re.IGNORECASE)
+
+        # Normalize dot-matrix email without dot before TLD (e.g. qmat@itcin -> qmat@itc.in)
+        cleaned = re.sub(r"@([A-Za-z0-9_-]+?)(in|com|org|net|co\.in)\b", r"@\1.\2", cleaned, flags=re.IGNORECASE)
+
+        # Normalize currency prefix (e.g. R1/- or R 1/- -> Rs. 1/-)
+        cleaned = re.sub(r"\bR\s*(\d+)\s*(?:/-)", r"Rs. \1/-", cleaned, flags=re.IGNORECASE)
+
         return cleaned
 
     @classmethod
@@ -104,40 +121,69 @@ class TokenNormalizer:
 
         return filtered
 
+    @staticmethod
+    def is_vertical_token(token: OCRToken) -> bool:
+        """Returns True if the token's bounding box indicates vertical sidebar text."""
+        w = max(1, token.bbox[2] - token.bbox[0])
+        h = max(1, token.bbox[3] - token.bbox[1])
+        return h >= 1.8 * w and h >= 35
+
     @classmethod
     def reconstruct_lines(
         cls,
         tokens: list[OCRToken],
-        vertical_overlap_ratio: float = 0.5,
+        vertical_overlap_ratio: float = 0.45,
     ) -> list[TextLine]:
         """
-        Sort and group tokens into horizontal text lines based on spatial coordinates.
-        Sorts lines top-to-bottom, and tokens within each line left-to-right.
+        Sort and group tokens into reading-order text lines based on spatial coordinates:
+        1. Vertical sidebar tokens are isolated into their own independent lines.
+        2. Horizontal tokens are grouped using strict bidirectional vertical overlap.
+        3. Wide horizontal gaps (> 3x font height) between tokens prevent cross-column merging.
+        4. Lines are sorted top-to-bottom, tokens within each line left-to-right.
         """
         if not tokens:
             return []
 
-        # Sort tokens primarily by Y-coordinate (top-to-bottom), secondarily by X-coordinate
-        sorted_tokens = sorted(tokens, key=lambda t: (t.bbox[1], t.bbox[0]))
+        # Separate vertical sidebar tokens from standard horizontal tokens
+        horizontal_tokens: list[OCRToken] = []
+        vertical_lines: list[TextLine] = []
+
+        for token in tokens:
+            if cls.is_vertical_token(token):
+                vertical_lines.append(
+                    TextLine(
+                        text=token.text,
+                        confidence=token.confidence,
+                        bbox=token.bbox,
+                        tokens=[token],
+                    )
+                )
+            else:
+                horizontal_tokens.append(token)
+
+        # Sort horizontal tokens primarily by Y-coordinate, secondarily by X-coordinate
+        sorted_tokens = sorted(horizontal_tokens, key=lambda t: (t.bbox[1], t.bbox[0]))
 
         line_groups: list[list[OCRToken]] = []
 
         for token in sorted_tokens:
             t_ymin, t_ymax = token.bbox[1], token.bbox[3]
             t_height = max(1, t_ymax - t_ymin)
-            t_cy = (t_ymin + t_ymax) / 2.0
 
             placed = False
             for group in line_groups:
-                # Calculate bounding vertical span of the group
                 g_ymin = min(t.bbox[1] for t in group)
                 g_ymax = max(t.bbox[3] for t in group)
                 g_height = max(1, g_ymax - g_ymin)
-                g_cy = (g_ymin + g_ymax) / 2.0
 
-                # Tolerant vertical distance check
-                max_h = max(t_height, g_height)
-                if abs(t_cy - g_cy) < max_h * vertical_overlap_ratio:
+                # Height compatibility check (prevent mixing tiny and giant fonts in one line)
+                if max(t_height, g_height) / min(t_height, g_height) > 2.2:
+                    continue
+
+                # True vertical overlap intersection
+                inter_y = max(0, min(t_ymax, g_ymax) - max(t_ymin, g_ymin))
+                min_h = min(t_height, g_height)
+                if (inter_y / min_h) >= vertical_overlap_ratio:
                     group.append(token)
                     placed = True
                     break
@@ -149,33 +195,65 @@ class TokenNormalizer:
         text_lines: list[TextLine] = []
         for group in line_groups:
             group_sorted = sorted(group, key=lambda t: t.bbox[0])
-            line_text = " ".join(t.text for t in group_sorted).strip()
-            
-            x_min = min(t.bbox[0] for t in group_sorted)
-            y_min = min(t.bbox[1] for t in group_sorted)
-            x_max = max(t.bbox[2] for t in group_sorted)
-            y_max = max(t.bbox[3] for t in group_sorted)
-            mean_conf = round(sum(t.confidence for t in group_sorted) / len(group_sorted), 4)
 
-            text_lines.append(
-                TextLine(
-                    text=line_text,
-                    confidence=mean_conf,
-                    bbox=[x_min, y_min, x_max, y_max],
-                    tokens=group_sorted,
+            # Check if there is an excessive horizontal gap indicating separate columns
+            current_subgroup: list[OCRToken] = []
+            for t in group_sorted:
+                if current_subgroup:
+                    prev_t = current_subgroup[-1]
+                    gap = t.bbox[0] - prev_t.bbox[2]
+                    avg_h = ((prev_t.bbox[3] - prev_t.bbox[1]) + (t.bbox[3] - t.bbox[1])) / 2.0
+                    # If horizontal gap is huge (> 4x font height), treat as distinct column stream
+                    if gap > 4.0 * avg_h and gap > 120:
+                        # Flush current subgroup
+                        sub_text = " ".join(item.text for item in current_subgroup).strip()
+                        text_lines.append(
+                            TextLine(
+                                text=sub_text,
+                                confidence=round(sum(item.confidence for item in current_subgroup) / len(current_subgroup), 4),
+                                bbox=[
+                                    min(item.bbox[0] for item in current_subgroup),
+                                    min(item.bbox[1] for item in current_subgroup),
+                                    max(item.bbox[2] for item in current_subgroup),
+                                    max(item.bbox[3] for item in current_subgroup),
+                                ],
+                                tokens=current_subgroup,
+                            )
+                        )
+                        current_subgroup = [t]
+                        continue
+                current_subgroup.append(t)
+
+            if current_subgroup:
+                line_text = " ".join(t.text for t in current_subgroup).strip()
+                x_min = min(t.bbox[0] for t in current_subgroup)
+                y_min = min(t.bbox[1] for t in current_subgroup)
+                x_max = max(t.bbox[2] for t in current_subgroup)
+                y_max = max(t.bbox[3] for t in current_subgroup)
+                mean_conf = round(sum(t.confidence for t in current_subgroup) / len(current_subgroup), 4)
+
+                text_lines.append(
+                    TextLine(
+                        text=line_text,
+                        confidence=mean_conf,
+                        bbox=[x_min, y_min, x_max, y_max],
+                        tokens=current_subgroup,
+                    )
                 )
-            )
 
-        # Sort lines top-to-bottom by y_min
-        text_lines.sort(key=lambda line: line.bbox[1])
-        return text_lines
+        # Merge horizontal text lines and vertical sidebar lines
+        all_lines = text_lines + vertical_lines
+
+        # Sort all lines top-to-bottom by y_min
+        all_lines.sort(key=lambda line: line.bbox[1])
+        return all_lines
 
     @classmethod
     def normalize(
         cls,
         tokens: list[OCRToken],
         min_confidence: Optional[float] = None,
-        vertical_overlap_ratio: float = 0.5,
+        vertical_overlap_ratio: float = 0.45,
     ) -> list[TextLine]:
         """
         Convenience pipeline: filters tokens by confidence and reconstructs spatial text lines.

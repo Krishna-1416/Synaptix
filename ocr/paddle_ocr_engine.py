@@ -69,8 +69,8 @@ class RapidOCREngine(OCREngineProtocol):
     def detect_and_recognize(
         self,
         image: np.ndarray,
-        box_thresh: float = 0.38,
-        unclip_ratio: float = 1.8,
+        box_thresh: float = 0.32,
+        unclip_ratio: float = 2.0,
         text_score: float = 0.45,
         limit_side_len: int = 1536,
     ) -> list[OCRToken]:
@@ -217,8 +217,8 @@ def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRa
         # Pass 1: Standard high-res inference
         pass1_tokens = engine.detect_and_recognize(
             image_np,
-            box_thresh=0.38,
-            unclip_ratio=1.8,
+            box_thresh=0.32,
+            unclip_ratio=2.0,
             text_score=0.45,
             limit_side_len=1536,
         )

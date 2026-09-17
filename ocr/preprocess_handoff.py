@@ -43,22 +43,39 @@ class PreprocessHandoff:
         if isinstance(source, (bytes, bytearray)):
             if len(source) == 0:
                 raise ImageValidationError("Received empty byte buffer (size == 0).")
-            nparr = np.frombuffer(source, np.uint8)
-            bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if bgr is None:
-                raise ImageValidationError("Invalid or corrupt image: OpenCV failed to decode image bytes into an image array.")
-            image_array = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            try:
+                import io
+                from PIL import Image, ImageOps
+                with Image.open(io.BytesIO(source)) as pil_img:
+                    pil_img = ImageOps.exif_transpose(pil_img)
+                    if pil_img.mode != "RGB":
+                        pil_img = pil_img.convert("RGB")
+                    image_array = np.array(pil_img, dtype=np.uint8)
+            except Exception:
+                nparr = np.frombuffer(source, np.uint8)
+                bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if bgr is None:
+                    raise ImageValidationError("Invalid or corrupt image: OpenCV failed to decode image bytes into an image array.")
+                image_array = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
         elif isinstance(source, (str, Path)):
             path = Path(source)
             if not path.exists() or not path.is_file():
                 raise ImageValidationError(f"Image file does not exist: {path}")
             
-            # Read via OpenCV (loads BGR)
-            bgr = cv2.imread(str(path))
-            if bgr is None:
-                raise ImageValidationError(f"OpenCV failed to decode image: {path}")
-            image_array = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            try:
+                from PIL import Image, ImageOps
+                with Image.open(str(path)) as pil_img:
+                    pil_img = ImageOps.exif_transpose(pil_img)
+                    if pil_img.mode != "RGB":
+                        pil_img = pil_img.convert("RGB")
+                    image_array = np.array(pil_img, dtype=np.uint8)
+            except Exception:
+                # Fallback via OpenCV (loads BGR)
+                bgr = cv2.imread(str(path))
+                if bgr is None:
+                    raise ImageValidationError(f"OpenCV failed to decode image: {path}")
+                image_array = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
         elif isinstance(source, np.ndarray):
             if source.size == 0:

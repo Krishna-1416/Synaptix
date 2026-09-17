@@ -59,13 +59,13 @@ class LegalFieldExtractor:
         [^\d]*                                                 # Delimiter
         (?P<value>\d+(?:\.\d+)?)                               # Numerical value
         \s*
-        (?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|liter|liters?|N|units?|pcs|pieces|nos)\b # Legal SI units
+        (?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|liter|liters?|N|units?|pcs|pieces|nos|sticks?|matches?|tablets?|capsules?|sheets?|wipes?|pouches?|rolls?|bags?|tubes?|bars?|packs?)\b # Legal SI & Packaging units
         """,
         re.IGNORECASE | re.VERBOSE,
     )
-    # Standalone fallback quantity if preceded without keyword (e.g., "500 g", "1.5 kg")
+    # Standalone fallback quantity if preceded without keyword (e.g., "500 g", "1.5 kg", "25 sticks")
     RE_STANDALONE_QTY = re.compile(
-        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|liter|liters?|N|units?|pcs|pieces|nos)\b",
+        r"\b(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>kg|g|gm|grams?|ml|m[lI1\|]|l|ltr|litres?|liter|liters?|N|units?|pcs|pieces|nos|sticks?|matches?|tablets?|capsules?|sheets?|wipes?|pouches?|rolls?|bags?|tubes?|bars?|packs?)\b",
         re.IGNORECASE,
     )
 
@@ -83,13 +83,15 @@ class LegalFieldExtractor:
             |
             (?:\d{4}[A-Za-z]{2,3}\d{1,2})                      # 2021MA12
             |
+            (?:(?:0[1-9]|1[0-2])\d{2,4})                       # Compact dot-matrix 03208 or 0324
+            |
             (?:(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[a-z]*[\s\.\-\/]*\d{2,4}) # Month YYYY
         )
         """,
         re.IGNORECASE | re.VERBOSE,
     )
     RE_DATE_ONLY = re.compile(
-        r"\b(?P<date>(?:0[1-9]|1[0-2])[\/\-](?:20\d{2}|\d{2})|20\d{2}[\/\-](?:0[1-9]|1[0-2])|\d{4}[A-Z]{2,3}\d{1,2})\b"
+        r"\b(?P<date>(?:0[1-9]|1[0-2])[\/\-](?:20\d{2}|\d{2})|20\d{2}[\/\-](?:0[1-9]|1[0-2])|\d{4}[A-Z]{2,3}\d{1,2}|(?:0[1-9]|1[0-2])\d{2,4})\b"
     )
 
     # --------------------------------------------------------------------------
@@ -126,13 +128,13 @@ class LegalFieldExtractor:
     # 6. Consumer Care Patterns
     # --------------------------------------------------------------------------
     RE_CARE_KEYWORD = re.compile(
-        r"\b(?:CUSTOMER\s*CARE|CONSUMER\s*CARE|CUSTOMER\s*QUERIES|CUSTOMER\s*SERVICE|CONSUMER\s*CELL|FEEDBACK|QUERIES|COMPLAINTS?|CARE\s*EXECUTIVE|CARE\s*CONTACT|CONTACT\s*US|HELPLINE|TOLL\s*FREE)\b",
+        r"\b(?:CUSTOMER\s*CARE|CONSUMER\s*CARE|CUSTOMER\s*QUERIES|CUSTOMER\s*SERVICE|CONSUMER\s*CELL|FEEDBACK|QUERIES|COMPLAINTS?|CARE\s*EXECUTIVE|CARE\s*CONTACT|CONTACT\s*US|HELPLINE|TOLL\s*FREE|FOR\s*FEEDBACK)\b",
         re.IGNORECASE,
     )
-    RE_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
+    RE_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
     RE_PHONE = re.compile(
         r"(?:"
-        r"\b(?:1800|1860|0800|0808)[\-\s]?\d{2,4}[\-\s]?\d{3,4}\b"
+        r"\b(?:1800|1860|0800|0808)[\-\s]?\d{2,4}[\-\s]?\d{3,6}\b"
         r"|\b(?:\+?91[\-\s]?)?[6-9]\d{9}\b"
         r"|\b0\d{2,4}[\-\s]\d{6,8}\b"
         r"|\b0800\d{7}\b"
@@ -164,7 +166,9 @@ class LegalFieldExtractor:
         "blended edible vegetable oil", "edible vegetable oil", "vegetable oil",
         "sunflower oil", "mustard oil", "soybean oil", "pure honey", "honey",
         "wheat flour", "atta", "tea", "coffee",
-        "detergent powder", "toilet soap", "soap", "toothpaste", "shampoo"
+        "detergent powder", "detergent", "toilet soap", "bathing bar", "soap", "toothpaste", "toothbrush", "shampoo",
+        "safety matches", "safety match", "matches", "matchbox",
+        "notebook", "adhesive tape", "ball pen", "pencil", "battery"
     ]
 
     # --------------------------------------------------------------------------
@@ -218,19 +222,22 @@ class LegalFieldExtractor:
                 except ValueError:
                     amount_num = 0.0
 
-                # Validate price plausibility (> 2.0 unless explicit currency or /- is present)
+                # Validate price plausibility (> 0.50 unless explicit currency or /- is present)
                 has_explicit_curr = any(c in text for c in ("₹", "Rs", "RS", "INR", "/-"))
-                if amount_num >= 2.0 or has_explicit_curr:
+                if amount_num >= 0.50 or has_explicit_curr:
                     tax_match = cls.RE_TAX_QUALIFIER.search(text)
-                    if not tax_match and i + 1 < len(lines):
-                        tax_match = cls.RE_TAX_QUALIFIER.search(lines[i + 1].text)
+                    if not tax_match:
+                        for tax_off in range(1, min(4, len(lines) - i)):
+                            if cls.RE_TAX_QUALIFIER.search(lines[i + tax_off].text) or "TAX" in lines[i + tax_off].text.upper():
+                                tax_match = True
+                                break
 
                     currency = "₹" if "₹" in text else "Rs."
                     if tax_match or "TAX" in text.upper():
                         return f"{currency} {amount} (INCL. OF ALL TAXES)"
                     return f"{currency} {amount}"
 
-            # Keyword on line i, but amount might be on line i, i+1, or i+2
+            # Keyword on line i, but amount might be on line i, i+1, i+2, or i+3
             if cls.RE_MRP_KEYWORD.search(text):
                 # Search for currency-qualified or formatted amount first
                 cand_match = re.search(r"(?:₹|Rs\.?|INR)\s*((?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d{1,2})?)", text, re.IGNORECASE)
@@ -241,7 +248,7 @@ class LegalFieldExtractor:
                 tax_found = "TAX" in text.upper()
 
                 if not target_amount:
-                    for offset in (1, 2):
+                    for offset in (1, 2, 3):
                         if i + offset < len(lines):
                             cand_line = lines[i + offset].text
                             # Exclude lines that are clearly dates, batch numbers, or nutritional quantities
@@ -262,13 +269,20 @@ class LegalFieldExtractor:
                                     val_num = float(val.replace(",", ""))
                                 except ValueError:
                                     val_num = 0.0
-                                if val_num >= 2.0 or any(c in cand_line for c in ("₹", "Rs", "RS", "/-")):
+                                if val_num >= 0.50 or any(c in cand_line for c in ("₹", "Rs", "RS", "/-")):
                                     target_amount = val
                                     if "TAX" in cand_line.upper() or cls.RE_TAX_QUALIFIER.search(cand_line):
                                         tax_found = True
                                     break
 
                 if target_amount:
+                    # Look ahead up to 3 lines for tax qualification
+                    if not tax_found:
+                        for tax_off in range(1, min(4, len(lines) - i)):
+                            t_cand = lines[i + tax_off].text.upper()
+                            if "TAX" in t_cand or cls.RE_TAX_QUALIFIER.search(t_cand):
+                                tax_found = True
+                                break
                     tax_str = " (INCL. OF ALL TAXES)" if tax_found else ""
                     return f"₹ {target_amount}{tax_str}"
 
@@ -276,7 +290,7 @@ class LegalFieldExtractor:
 
     @classmethod
     def extract_net_quantity(cls, lines: list[TextLine]) -> Optional[str]:
-        """Extract Net Quantity with SI unit."""
+        """Extract Net Quantity with SI unit or packaging count."""
         # Pass 1: standard keyword search on same line
         for line in lines:
             text = line.text
@@ -342,6 +356,28 @@ class LegalFieldExtractor:
             return "L"
         if u in ("n", "unit", "units", "pc", "pcs", "piece", "pieces", "nos"):
             return "units"
+        if u in ("stick", "sticks"):
+            return "sticks"
+        if u in ("match", "matches"):
+            return "matches"
+        if u in ("tablet", "tablets"):
+            return "tablets"
+        if u in ("capsule", "capsules"):
+            return "capsules"
+        if u in ("sheet", "sheets"):
+            return "sheets"
+        if u in ("wipe", "wipes"):
+            return "wipes"
+        if u in ("pouch", "pouches"):
+            return "pouches"
+        if u in ("roll", "rolls"):
+            return "rolls"
+        if u in ("bar", "bars"):
+            return "bars"
+        if u in ("tube", "tubes"):
+            return "tubes"
+        if u in ("pack", "packs"):
+            return "packs"
         return unit_str
 
     @classmethod
@@ -417,7 +453,7 @@ class LegalFieldExtractor:
                     "MUMBAI", "KOLKATA", "DELHI", "BANGALORE", "BENGALURU", "CHENNAI",
                     "AHMEDABAD", "PUNE", "HYDERABAD", "INDIA", "MAHARASHTRA", "GUJARAT",
                     "WEST BENGAL", "ANDHRA PRADESH", "TAMIL NADU", "HARYANA", "PUNJAB",
-                    "SURAT", "ANAND", "PAREL", "NAGPUR"
+                    "SURAT", "ANAND", "PAREL", "NAGPUR", "SIVAKASI"
                 )
             )
             if has_loc and (has_pin or "INDIA" in upper or any(corp in upper for corp in ("PVT", "LTD", "LIMITED"))):
@@ -429,9 +465,20 @@ class LegalFieldExtractor:
     def extract_manufacturer(cls, lines: list[TextLine]) -> Optional[str]:
         """
         Extract Manufacturer/Packer name and address.
-        Uses windowing to capture multi-line addresses ending with pincode or newline.
+        Uses boundary-guarded windowing to capture multi-line addresses ending with pincode,
+        terminating at statutory boundaries (MRP, Customer Care, Net Qty, Dates).
         """
-        # Pass 1: Look for explicit manufacturer keyword
+        STATUTORY_STOP_KEYWORDS = (
+            "M.R.P", "MRP", "RETAIL PRICE", "MAX RETAIL",
+            "NET WT", "NET WEIGHT", "NET QTY", "NET QUANTITY", "NET CONTENT",
+            "CUSTOMER CARE", "CONSUMER CARE", "FEEDBACK", "COMPLAINT", "QUERIES",
+            "CONTACT US", "HELPLINE", "TOLL FREE", "FOR FEEDBACK",
+            "MFD", "MFG", "PKD", "PACKED ON", "BEST BEFORE", "EXPIRY", "USE BY",
+            "BATCH", "B.NO", "COUNTRY OF ORIGIN", "MADE IN", "PRODUCT OF",
+            "INGREDIENT", "NUTRITION", "SERVING", "ALLERGEN"
+        )
+
+        # Pass 1: Look for explicit manufacturer keyword (MFD. BY, MANUFACTURED BY, etc.)
         for i, line in enumerate(lines):
             text = line.text
             match = cls.RE_MFG_KEYWORD.search(text)
@@ -440,11 +487,18 @@ class LegalFieldExtractor:
                 initial_part = text[start_idx:].strip(" :.-")
                 mfg_parts = [initial_part] if initial_part else []
 
-                for next_idx in range(i + 1, min(len(lines), i + 6)):
+                # If the line itself already contains a valid 6-digit pincode, do not swallow next lines
+                if initial_part and cls.RE_PINCODE.search(initial_part):
+                    return initial_part.strip(" ,.-")
+
+                for next_idx in range(i + 1, min(len(lines), i + 5)):
                     next_line = lines[next_idx].text.strip()
+                    # Stop at statutory boundaries
+                    if any(stop_k in next_line.upper() for stop_k in STATUTORY_STOP_KEYWORDS):
+                        break
                     if any(
                         p.search(next_line)
-                        for p in (cls.RE_MRP_KEYWORD, cls.RE_CARE_KEYWORD, cls.RE_ORIGIN)
+                        for p in (cls.RE_MRP_KEYWORD, cls.RE_CARE_KEYWORD, cls.RE_ORIGIN, cls.RE_NET_QTY, cls.RE_PHONE, cls.RE_EMAIL)
                     ):
                         break
                     mfg_parts.append(next_line)
@@ -455,17 +509,23 @@ class LegalFieldExtractor:
                 if full_mfg and len(full_mfg) >= 5:
                     return full_mfg
 
-        # Pass 2: Corporate entity search (e.g. "Britannia Industries Ltd", "Mondelez India Foods Private Limited")
+        # Pass 2: Corporate entity search (e.g. "Britannia Industries Ltd", "ITC Limited")
         for i, line in enumerate(lines):
             text = line.text
             corp_match = cls.RE_MFG_CORP.search(text)
-            if corp_match and not any(k in text.upper() for k in ("NUTRITION", "INGREDIENTS", "SERVING", "FSSAI", "LIC")):
+            if corp_match and not any(k in text.upper() for k in ("NUTRITION", "INGREDIENTS", "SERVING", "FSSAI", "LIC", "FEEDBACK", "CARE")):
                 mfg_parts = [text.strip(" :.-")]
+                if cls.RE_PINCODE.search(text):
+                    return text.strip(" :.-")
+
                 for next_idx in range(i + 1, min(len(lines), i + 5)):
                     next_line = lines[next_idx].text.strip()
-                    if any(p.search(next_line) for p in (cls.RE_MRP_KEYWORD, cls.RE_CARE_KEYWORD, cls.RE_ORIGIN)):
+                    if any(stop_k in next_line.upper() for stop_k in STATUTORY_STOP_KEYWORDS):
                         break
-                    if any(k in next_line.upper() for k in ("NUTRITION", "INGREDIENTS", "SERVING", "ALLERGEN")):
+                    if any(
+                        p.search(next_line)
+                        for p in (cls.RE_MRP_KEYWORD, cls.RE_CARE_KEYWORD, cls.RE_ORIGIN, cls.RE_NET_QTY, cls.RE_PHONE, cls.RE_EMAIL)
+                    ):
                         break
                     mfg_parts.append(next_line)
                     if cls.RE_PINCODE.search(next_line):
@@ -480,53 +540,78 @@ class LegalFieldExtractor:
     @classmethod
     def extract_consumer_care(cls, lines: list[TextLine]) -> Optional[str]:
         """Extract customer support phone, email, website, or care cell contact."""
+        # 1. Check for explicit consumer care section
+        for i, line in enumerate(lines):
+            text = line.text
+            if cls.RE_CARE_KEYWORD.search(text):
+                block_lines: list[str] = [text]
+                for next_idx in range(i + 1, min(len(lines), i + 5)):
+                    next_l = lines[next_idx].text.strip()
+                    if cls.RE_MFG_KEYWORD.search(next_l):
+                        break
+                    if any(
+                        p.search(next_l)
+                        for p in (cls.RE_MRP_KEYWORD, cls.RE_NET_QTY, cls.RE_MFG_DATE)
+                    ):
+                        break
+                    if any(k in next_l.upper() for k in ("MFD BY", "MANUFACTURED BY", "PACKED BY", "M.R.P", "NET WT", "NET QTY")):
+                        break
+                    block_lines.append(next_l)
+
+                block_text = " ".join(block_lines)
+                b_emails = cls.RE_EMAIL.findall(block_text)
+                b_phones = cls.RE_PHONE.findall(block_text)
+                b_webs = cls.RE_WEBSITE.findall(block_text)
+
+                contact_items = []
+                if b_phones:
+                    contact_items.append(f"Phone: {b_phones[0]}")
+                if b_emails:
+                    contact_items.append(f"Email: {b_emails[0]}")
+                if b_webs:
+                    contact_items.append(f"Website: {b_webs[0]}")
+
+                cleaned_block = re.sub(
+                    r"\b(?:CUSTOMER\s*CARE|CONSUMER\s*CARE|CUSTOMER\s*QUERIES|CUSTOMER\s*SERVICE|CONSUMER\s*CELL|FEEDBACK|QUERIES|COMPLAINTS?|CARE\s*EXECUTIVE|CARE\s*CONTACT|CONTACT\s*US|HELPLINE|TOLL\s*FREE|FOR\s*FEEDBACK)\b",
+                    "",
+                    block_text,
+                    flags=re.IGNORECASE
+                ).strip(" :,.-|")
+                cleaned_block = re.sub(r"^(?:for\s*)?(?:feedback|complaints?|queries|customer\s*care)?[\s/,]*(?:contact)?\s*[:.\-]?\s*", "", cleaned_block, flags=re.IGNORECASE).strip(" :,.-|")
+
+                if contact_items:
+                    # Clean out phone/email from the address prefix
+                    addr_clean = cleaned_block
+                    for ph in b_phones:
+                        addr_clean = addr_clean.replace(ph, "")
+                    for em in b_emails:
+                        addr_clean = addr_clean.replace(em, "")
+                    addr_clean = re.sub(r"\b(?:Ph|Phone|Tel|email|mail)\s*:\s*", "", addr_clean, flags=re.IGNORECASE)
+                    addr_clean = re.sub(r"^(?:/,?|contact|\s)+", "", addr_clean, flags=re.IGNORECASE).strip(" :,.-|")
+                    if len(addr_clean) > 8:
+                        return f"{', '.join(contact_items)}, {addr_clean}"
+                    return ", ".join(contact_items)
+
+                if len(cleaned_block) > 5:
+                    return cleaned_block
+
+        # Fallback: search across all lines for email, phone, website
         all_text = " | ".join(l.text for l in lines)
         emails = cls.RE_EMAIL.findall(all_text)
         phones = cls.RE_PHONE.findall(all_text)
         websites = cls.RE_WEBSITE.findall(all_text)
-
-        # Look for explicit consumer care header line
-        for i, line in enumerate(lines):
-            text = line.text
-            if cls.RE_CARE_KEYWORD.search(text):
-                line_window = text
-                if i + 1 < len(lines):
-                    line_window += " " + lines[i + 1].text
-                if i + 2 < len(lines):
-                    line_window += " " + lines[i + 2].text
-
-                w_emails = cls.RE_EMAIL.findall(line_window)
-                w_phones = cls.RE_PHONE.findall(line_window)
-                w_webs = cls.RE_WEBSITE.findall(line_window)
-
-                parts = []
-                if w_emails:
-                    parts.extend(w_emails)
-                if w_phones:
-                    parts.extend(w_phones)
-                if w_webs:
-                    parts.extend(w_webs)
-
-                if parts:
-                    return ", ".join(dict.fromkeys(parts))
-
-                cleaned_line = cls.RE_CARE_KEYWORD.sub("", text).strip(" :.-|")
-                if len(cleaned_line) > 5:
-                    return cleaned_line
-
-        # Fallback: if emails, websites, or toll-free phones exist anywhere on package
-        combined = []
-        if emails:
-            combined.extend(emails)
+        fallback_parts = []
         if phones:
-            combined.extend(phones)
+            fallback_parts.append(f"Phone: {phones[0]}")
+        if emails:
+            fallback_parts.append(f"Email: {emails[0]}")
         if websites:
-            for w in websites:
-                if not any(ign in w.lower() for ign in ("openfoodfacts", "example", "github")):
-                    combined.append(w)
+            valid_webs = [w for w in websites if not any(ign in w.lower() for ign in ("openfoodfacts", "example", "github"))]
+            if valid_webs:
+                fallback_parts.append(f"Website: {valid_webs[0]}")
 
-        if combined:
-            return ", ".join(dict.fromkeys(combined))
+        if fallback_parts:
+            return ", ".join(fallback_parts)
 
         return None
 
@@ -633,7 +718,7 @@ class LegalFieldExtractor:
 
         # 2. Parse quantity and unit
         qty_match = re.search(
-            r"(\d+(?:\.\d+)?)\s*(kg|g|gm|grams?|ml|millilitres?|l|ltr|litres?|liter|liters?|pcs|pieces?|units?|nos|count|item|n)\b",
+            r"(\d+(?:\.\d+)?)\s*(kg|g|gm|grams?|ml|millilitres?|l|ltr|litres?|liter|liters?|pcs|pieces?|units?|nos|count|item|n|sticks?|matches?|tablets?|capsules?|sheets?|wipes?|pouches?|rolls?|bars?|tubes?|packs?)\b",
             net_quantity_str,
             re.IGNORECASE
         )
@@ -702,13 +787,14 @@ class LegalFieldExtractor:
                 "per_kg": round(per_kg, 2),
                 "unit": "kg"
             }
-        elif std_unit in ("units", "pcs", "nos"):
+        elif std_unit in ("units", "pcs", "nos", "sticks", "matches", "tablets", "capsules", "sheets", "wipes", "pouches", "rolls", "bars", "tubes", "packs"):
             per_unit = mrp_val / qty_val
+            singular = std_unit[:-1] if std_unit.endswith("s") and len(std_unit) > 2 else std_unit
             return {
-                "primary": f"₹ {per_unit:.2f} / unit",
-                "secondary": f"₹ {per_unit:.2f} / piece",
+                "primary": f"₹ {per_unit:.2f} / {singular}",
+                "secondary": f"₹ {per_unit:.2f} / unit",
                 "per_unit": round(per_unit, 2),
-                "unit": "unit"
+                "unit": singular
             }
 
         return None
