@@ -11,6 +11,9 @@ from typing import Union
 import cv2
 import numpy as np
 
+# Disable OpenCV multi-threading to prevent thread stack memory overhead and contention on 0.1 vCPU
+cv2.setNumThreads(0)
+
 
 class ImageValidationError(ValueError):
     """Raised when an incoming image fails dimensionality, type, or integrity checks."""
@@ -22,7 +25,7 @@ class PreprocessHandoff:
 
     MIN_DIMENSION: int = 32
     MAX_DIMENSION: int = 8192
-    TARGET_MAX_DIMENSION: int = 2400
+    TARGET_MAX_DIMENSION: int = 1280
 
     @classmethod
     def load_and_validate(cls, source: Union[np.ndarray, str, Path, bytes, bytearray]) -> np.ndarray:

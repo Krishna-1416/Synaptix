@@ -11,6 +11,7 @@ Coordinates:
 
 import time
 import logging
+import gc
 from pathlib import Path
 from typing import Union
 import numpy as np
@@ -70,6 +71,9 @@ def run_ocr_pipeline(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> O
         f"OCR Pipeline completed: {len(tokens)} tokens, {len(lines)} lines, "
         f"{elapsed_ms}ms latency, mean_confidence={mean_conf}"
     )
+
+    # Release cyclic references and native memory back to the OS
+    gc.collect()
 
     return OCRResult(
         ocr_raw=raw_payload,
