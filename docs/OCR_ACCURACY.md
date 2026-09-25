@@ -325,7 +325,7 @@ def repair_fields(fields: dict, raw_text: str) -> dict:
 Quantising the ONNX models to INT8 reduces model size and memory footprint by 50–75% with typically less than 1% accuracy loss. This is the key enabler for running server models on Render's free tier (512 MB RAM).
 
 ### 9.2 Implementation
-**Standalone script — `scripts/quantize_models.py`:**
+**Standalone script — `ocr/quantize_models.py`:**
 
 ```python
 from onnxruntime.quantization import quantize_dynamic, QuantType
