@@ -69,20 +69,22 @@ class RapidOCREngine(OCREngineProtocol):
     def detect_and_recognize(
         self,
         image: np.ndarray,
-        box_thresh: float = 0.32,
-        unclip_ratio: float = 2.0,
-        text_score: float = 0.45,
-        limit_side_len: int = 1536,
+        det_db_thresh: float = 0.20,
+        box_thresh: float = 0.40,
+        unclip_ratio: float = 2.2,
+        text_score: float = 0.35,
+        limit_side_len: int = 1280,
     ) -> list[OCRToken]:
         """
         Run PP-OCRv4 detection and recognition on the provided RGB image array.
 
         Args:
             image: uint8 NumPy array of shape (H, W, 3).
-            box_thresh: DBNet detection threshold (lower captures fainter text strokes).
-            unclip_ratio: Bounding box expansion ratio (preserves diacritics & decimals).
-            text_score: Recognition confidence threshold.
-            limit_side_len: Max side length for DBNet inference (preserves 1mm packaging fonts).
+            det_db_thresh: DBNet pixel binarization threshold (lower = captures faint/low-contrast ink).
+            box_thresh: DBNet box confidence threshold (higher = suppresses background graphic noise).
+            unclip_ratio: Bounding box expansion ratio (preserves diacritics, decimals & edge chars).
+            text_score: Recognition confidence threshold (lower = preserves marginal candidates for regex).
+            limit_side_len: Max side length for DBNet inference, aligned to TARGET_MAX_DIMENSION.
 
         Returns:
             list[OCRToken]: Detected tokens with text, confidence, and bounding box.
@@ -99,6 +101,7 @@ class RapidOCREngine(OCREngineProtocol):
 
                 raw_out = self._engine(
                     image,
+                    det_db_thresh=det_db_thresh,
                     box_thresh=box_thresh,
                     unclip_ratio=unclip_ratio,
                     text_score=text_score,
@@ -202,7 +205,8 @@ def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRa
     Adaptive multi-condition OCR text extraction facade using RapidOCR (PP-OCRv4).
     
     1. Validates and standardizes input into RGB uint8 ndarray.
-    2. Pass 1: Runs RapidOCREngine with high-res detector limit (1536px).
+    2. Pass 1: Runs RapidOCREngine with tuned detection params (Improvement #2: det_db_thresh=0.20,
+       box_thresh=0.40, unclip_ratio=2.2, text_score=0.35, limit_side_len=1280).
     3. Pass 2 (Adaptive Recovery): If Pass 1 yields low tokens (<18) or low confidence (<0.65),
        applies glare suppression, CLAHE contrast enhancement, unsharp sharpening, and upscaling.
     4. Merges & deduplicates tokens via spatial IoU to maximize recall under real packaging conditions.
@@ -214,13 +218,19 @@ def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRa
 
     try:
         engine = RapidOCREngine.get_instance()
-        # Pass 1: Standard high-res inference
+        # Pass 1: Tuned-parameter inference (Improvement #2 — aggressive detection)
+        # det_db_thresh=0.20: captures faint inkjet/dot-matrix text on colored packaging
+        # box_thresh=0.40:    suppresses background graphic noise introduced by lower binarization
+        # unclip_ratio=2.2:   expands boxes to prevent edge characters (decimals, units) being clipped
+        # text_score=0.35:    passes marginal candidates downstream to deterministic regex filters
+        # limit_side_len=1280: aligned to TARGET_MAX_DIMENSION — eliminates redundant scale ops
         pass1_tokens = engine.detect_and_recognize(
             image_np,
-            box_thresh=0.32,
-            unclip_ratio=2.0,
-            text_score=0.45,
-            limit_side_len=1536,
+            det_db_thresh=0.20,
+            box_thresh=0.40,
+            unclip_ratio=2.2,
+            text_score=0.35,
+            limit_side_len=1280,
         )
 
         h, w = image_np.shape[:2]
@@ -250,12 +260,15 @@ def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRa
         up_image, scale_factor = upscale_if_low_res(image_np, min_dimension_threshold=600)
         enhanced_image = enhance_packaging_image(up_image)
 
+        # Pass 2: Aggressive recovery — slightly lower box_thresh to maximize token rescue
+        # on contrast-enhanced image where faint text becomes clearer
         pass2_raw_tokens = engine.detect_and_recognize(
             enhanced_image,
-            box_thresh=0.28,
-            unclip_ratio=2.0,
-            text_score=0.40,
-            limit_side_len=1536,
+            det_db_thresh=0.18,
+            box_thresh=0.35,
+            unclip_ratio=2.2,
+            text_score=0.32,
+            limit_side_len=1280,
         )
 
         # If upscaled, rescale Pass 2 bounding boxes back to original coordinates
