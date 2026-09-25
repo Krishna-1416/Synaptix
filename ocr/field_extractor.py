@@ -816,8 +816,71 @@ class LegalFieldExtractor:
             unit_sale_price=cls.extract_unit_sale_price(cleaned_lines),
         )
 
-    # Alias for convenience and backward compatibility
-    extract = extract_all_fields
+    def extract(self, source: Any) -> dict:
+        """Instance method for field extraction from text lines or raw string."""
+        return extract_fields(source)
+
+
+NUMERIC_CORRECTIONS = {
+    "O": "0",
+    "o": "0",
+    "l": "1",
+    "I": "1",
+    "S": "5",
+    "B": "8",
+    "Z": "2",
+}
+
+
+def correct_numeric(text: str) -> str:
+    """
+    Apply OCR domain corrections to numeric field candidates (Improvement #6).
+    Replaces common character misrecognitions (O->0, l/I->1, S->5, B->8, Z->2)
+    while preserving measurement units (e.g., 'ml', 'cl') and currency symbols.
+    """
+    if not text or not isinstance(text, str):
+        return text
+
+    # Protect known packaging units and currency markers from corruption
+    protected = {}
+    tokens_to_preserve = [
+        "ml", "ML", "mL", "cl", "dl", "fl.oz", "pcs", "nos",
+        "Rs.", "RS.", "Rs", "RS", "INR", "₹"
+    ]
+    temp_text = text
+    for i, token in enumerate(tokens_to_preserve):
+        if token in temp_text:
+            placeholder = f"__TOKEN_{i}__"
+            protected[placeholder] = token
+            temp_text = temp_text.replace(token, placeholder)
+
+    for wrong, right in NUMERIC_CORRECTIONS.items():
+        temp_text = temp_text.replace(wrong, right)
+
+    for placeholder, original in protected.items():
+        temp_text = temp_text.replace(placeholder, original)
+
+    return temp_text
+
+
+def repair_fields(fields: Union[dict, LegalMetrologyFields], raw_text: str = "") -> Union[dict, LegalMetrologyFields]:
+    """
+    Apply domain-specific OCR character corrections to numeric fields (Improvement #6).
+    Fixes OCR confusions in mrp, net_quantity, and manufacture_date.
+    """
+    is_model = isinstance(fields, LegalMetrologyFields)
+    fields_dict = fields.model_dump() if is_model else dict(fields)
+
+    for field in ["mrp", "net_quantity", "manufacture_date"]:
+        if fields_dict.get(field):
+            value = fields_dict[field]
+            if isinstance(value, str):
+                fields_dict[field] = correct_numeric(value)
+
+    if is_model:
+        return LegalMetrologyFields(**fields_dict)
+    return fields_dict
+
 
 
 def extract_fields(source: Any) -> dict:
@@ -844,13 +907,24 @@ def extract_fields(source: Any) -> dict:
         tokens = source["texts"]
     elif isinstance(source, list):
         tokens = source
+    elif isinstance(source, str):
+        # Support raw text input (e.g. from cropped region fallback OCR)
+        raw_lines = [l.strip() for l in source.splitlines() if l.strip()]
+        if not raw_lines and source.strip():
+            raw_lines = [source.strip()]
+        lines = [
+            TextLine(text=l, bbox=[0, i * 25, 500, (i + 1) * 25], confidence=0.95)
+            for i, l in enumerate(raw_lines)
+        ]
+        fields = LegalFieldExtractor.extract_all_fields(lines)
+        return repair_fields(fields.model_dump())
     else:
         tokens = []
 
     # If already a list of TextLine objects, extract directly
     if tokens and all(isinstance(t, TextLine) for t in tokens):
         fields = LegalFieldExtractor.extract_all_fields(tokens)
-        return fields.model_dump()
+        return repair_fields(fields.model_dump())
 
     # Normalize tokens to OCRToken instances
     ocr_tokens: list[OCRToken] = []
@@ -868,4 +942,4 @@ def extract_fields(source: Any) -> dict:
 
     lines = TokenNormalizer.normalize(ocr_tokens)
     fields = LegalFieldExtractor.extract_all_fields(lines)
-    return fields.model_dump()
+    return repair_fields(fields.model_dump())

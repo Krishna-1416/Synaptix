@@ -115,7 +115,10 @@ def enhance_packaging_image(
         enhanced = suppress_specular_glare(enhanced)
 
     if apply_clahe:
-        enhanced = apply_clahe_contrast(enhanced, clip_limit=2.5, tile_grid_size=(8, 8))
+        # Improvement #3: Conditional CLAHE (only apply if image has genuinely low contrast)
+        gray_contrast = cv2.cvtColor(enhanced, cv2.COLOR_RGB2GRAY).std()
+        if gray_contrast < 30.0:
+            enhanced = apply_clahe_contrast(enhanced, clip_limit=2.0, tile_grid_size=(8, 8))
 
     if apply_sharpening:
         # Check if image is blurry (Laplacian variance < 250)

@@ -20,12 +20,32 @@ class ImageValidationError(ValueError):
     pass
 
 
+class OCRConfig:
+    """Configuration parameters for OCR preprocessing and handoff."""
+    PAD_PIXELS: int = 20
+    CONTRAST_THRESHOLD: float = 30.0
+    ASPECT_RATIO_THRESHOLD: float = 3.0
+    PADDING_HEIGHT_RATIO: float = 0.15
+
+
+def compute_padding(w: int, h: int, base_pad: int = 20) -> int:
+    """
+    Add extra vertical padding for wide, short images (Improvement #4).
+    RapidOCR text detection benefits from vertical expansion on elongated packaging.
+    """
+    aspect = w / max(h, 1)
+    if aspect > 3.0:
+        return max(base_pad, int(h * 0.15))
+    return base_pad
+
+
 class PreprocessHandoff:
     """Handles and standardizes image handoffs from Member 4 (CV) or disk."""
 
     MIN_DIMENSION: int = 32
     MAX_DIMENSION: int = 8192
     TARGET_MAX_DIMENSION: int = 1280
+    PAD_PIXELS: int = 20
 
     @classmethod
     def load_and_validate(cls, source: Union[np.ndarray, str, Path, bytes, bytearray]) -> np.ndarray:
@@ -132,3 +152,47 @@ class PreprocessHandoff:
             image_array = cv2.resize(image_array, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
         return image_array
+
+
+def load_and_prepare(
+    image_input: Union[np.ndarray, str, Path, bytes, bytearray],
+    contrast_threshold: float = OCRConfig.CONTRAST_THRESHOLD,
+    apply_padding: bool = True,
+) -> np.ndarray:
+    """
+    Standardize, contrast-adjust (conditional CLAHE), and pad image for OCR inference.
+    
+    1. Ingests and standardizes image to RGB (H, W, 3).
+    2. Improvement #3 — Conditional CLAHE: Computes grayscale standard deviation and
+       applies CLAHE only when contrast is genuinely low (< 30).
+    3. Improvement #4 — Dynamic Padding: Adds vertical border padding for wide, short
+       packaging labels (aspect ratio > 3.0) to aid text detection.
+    """
+    img = PreprocessHandoff.load_and_validate(image_input)
+    h, w = img.shape[:2]
+
+    # Improvement #3: Compute image contrast
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    contrast = float(gray.std())
+
+    # Only apply CLAHE if contrast is low
+    if contrast < contrast_threshold:
+        lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        lab = cv2.merge((l, a, b))
+        img = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+    # Improvement #4: Dynamic padding for elongated labels
+    if apply_padding:
+        aspect = w / max(h, 1)
+        if aspect > OCRConfig.ASPECT_RATIO_THRESHOLD:
+            pad = compute_padding(w, h, OCRConfig.PAD_PIXELS)
+            img = cv2.copyMakeBorder(
+                img, pad, pad, pad, pad,
+                cv2.BORDER_CONSTANT, value=(255, 255, 255)
+            )
+
+    return img
+

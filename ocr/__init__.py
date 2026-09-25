@@ -6,7 +6,13 @@ and deterministic Legal Metrology declaration extraction conforming to
 Rule 6 of the Packaged Commodities Rules, 2011.
 """
 
-from ocr.field_extractor import LegalFieldExtractor, extract_fields
+from ocr.field_extractor import (
+    LegalFieldExtractor,
+    extract_fields,
+    repair_fields,
+    correct_numeric,
+    NUMERIC_CORRECTIONS,
+)
 from ocr.interfaces import OCREngineProtocol, OCRToken
 from ocr.models import (
     LegalMetrologyFields,
@@ -17,7 +23,13 @@ from ocr.models import (
 from ocr.normalizer import TextLine, TokenNormalizer
 from ocr.paddle_ocr_engine import PaddleOCREngine, extract_text
 from ocr.pipeline import run_ocr_pipeline
-from ocr.preprocess_handoff import ImageValidationError, PreprocessHandoff
+from ocr.preprocess_handoff import (
+    ImageValidationError,
+    PreprocessHandoff,
+    OCRConfig,
+    compute_padding,
+    load_and_prepare,
+)
 
 __all__ = [
     "OCREngineProtocol",
@@ -28,11 +40,17 @@ __all__ = [
     "OCRResult",
     "PreprocessHandoff",
     "ImageValidationError",
+    "OCRConfig",
+    "compute_padding",
+    "load_and_prepare",
     "PaddleOCREngine",
     "TokenNormalizer",
     "TextLine",
     "LegalFieldExtractor",
     "extract_text",
     "extract_fields",
+    "repair_fields",
+    "correct_numeric",
+    "NUMERIC_CORRECTIONS",
     "run_ocr_pipeline",
 ]

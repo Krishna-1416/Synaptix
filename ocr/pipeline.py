@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Union
 import numpy as np
 
+import cv2
 from ocr.interfaces import OCRToken
 from ocr.models import (
     LegalMetrologyFields,
@@ -23,11 +24,50 @@ from ocr.models import (
     OCRResult,
     OCRTelemetry,
 )
-from ocr.paddle_ocr_engine import extract_text
+from ocr.paddle_ocr_engine import extract_text, RapidOCREngine
 from ocr.normalizer import TokenNormalizer
-from ocr.field_extractor import LegalFieldExtractor
+from ocr.field_extractor import LegalFieldExtractor, repair_fields
+from ocr.preprocess_handoff import load_and_prepare
 
 logger = logging.getLogger("synaptix.ocr.pipeline")
+
+
+def retry_on_regions(
+    image: np.ndarray,
+    engine: RapidOCREngine,
+    missing_fields: list[str],
+) -> dict[str, str]:
+    """
+    Improvement #5: Targeted fallback OCR on cropped sub-regions.
+    Re-OCRs cropped regions for specific missing fields at 1.5x upscaling.
+    """
+    h, w = image.shape[:2]
+    regions = {
+        # field: (y_start_pct, y_end_pct, x_start_pct, x_end_pct)
+        "mrp": (0.5, 1.0, 0.4, 1.0),               # bottom-right
+        "net_quantity": (0.4, 0.9, 0.0, 0.6),      # middle-left
+        "manufacture_date": (0.5, 1.0, 0.0, 0.6),  # bottom-left
+    }
+    recovered = {}
+    for field in missing_fields:
+        if field not in regions:
+            continue
+        y1, y2, x1, x2 = regions[field]
+        crop = image[int(h * y1):int(h * y2), int(w * x1):int(w * x2)]
+        if crop.size == 0:
+            continue
+        # Upscale the crop for better OCR
+        crop = cv2.resize(crop, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+        tokens = engine.detect_and_recognize(crop)
+        text = " ".join(t.text for t in tokens)
+        # Re-run the field extractor on the crop text
+        extractor = LegalFieldExtractor()
+        partial = extractor.extract(text)
+        if isinstance(partial, dict) and partial.get(field):
+            recovered[field] = partial[field]
+        elif hasattr(partial, field) and getattr(partial, field):
+            recovered[field] = getattr(partial, field)
+    return recovered
 
 
 def run_ocr_pipeline(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRResult:
@@ -42,8 +82,11 @@ def run_ocr_pipeline(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> O
     """
     start_time = time.perf_counter()
 
+    # Preprocess image array for primary inference & fallback crops
+    image_np = load_and_prepare(image)
+
     # 1. Detect & Recognize raw text tokens
-    raw_payload: OCRRawPayload = extract_text(image)
+    raw_payload: OCRRawPayload = extract_text(image_np)
     tokens: list[OCRToken] = raw_payload.texts
 
     # 2. Reading-order line normalization
@@ -51,8 +94,19 @@ def run_ocr_pipeline(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> O
 
     # 3. Deterministic Rule 6 statutory extraction
     fields: LegalMetrologyFields = LegalFieldExtractor.extract_all_fields(lines)
+    raw_text = " ".join(t.text for t in tokens)
+    fields = repair_fields(fields, raw_text)
 
-    # 4. Telemetry metrics
+    # 4. Improvement #5: Targeted retry for critical missing fields
+    critical_fields = ["mrp", "net_quantity", "manufacture_date"]
+    missing = [f for f in critical_fields if not getattr(fields, f, None)]
+    if missing:
+        engine = RapidOCREngine.get_instance()
+        retry_fields = retry_on_regions(image_np, engine, missing)
+        if retry_fields:
+            fields = fields.model_copy(update={k: v for k, v in retry_fields.items() if v})
+
+    # 5. Telemetry metrics
     elapsed_ms = round((time.perf_counter() - start_time) * 1000.0, 2)
     mean_conf = (
         round(sum(t.confidence for t in tokens) / len(tokens), 4)

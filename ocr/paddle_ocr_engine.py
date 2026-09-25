@@ -17,7 +17,7 @@ import numpy as np
 
 from ocr.interfaces import OCREngineProtocol, OCRToken
 from ocr.models import OCRRawPayload
-from ocr.preprocess_handoff import PreprocessHandoff
+from ocr.preprocess_handoff import PreprocessHandoff, load_and_prepare
 from cv.adaptive_enhancement import enhance_packaging_image, upscale_if_low_res
 
 logger = logging.getLogger("synaptix.ocr.rapid")
@@ -36,8 +36,39 @@ class RapidOCREngine(OCREngineProtocol):
     def __init__(self, show_log: bool = False):
         """Initialize RapidOCR engine instance."""
         try:
+            from pathlib import Path
             from rapidocr_onnxruntime import RapidOCR
-            self._engine = RapidOCR()
+
+            # Check for quantized server models (Improvement #7) or full server models (Improvement #1)
+            quantized_det = Path("models/quantized/ch_PP-OCRv4_server_det_infer_int8.onnx")
+            quantized_rec = Path("models/quantized/ch_PP-OCRv4_server_rec_doc_infer_int8.onnx")
+            server_det = Path("models/ch_PP-OCRv4_server_det_infer.onnx")
+            server_rec = Path("models/ch_PP-OCRv4_server_rec_doc_infer.onnx")
+
+            det_path = None
+            if quantized_det.exists():
+                det_path = str(quantized_det)
+            elif server_det.exists():
+                det_path = str(server_det)
+
+            rec_path = None
+            if quantized_rec.exists():
+                rec_path = str(quantized_rec)
+            elif server_rec.exists():
+                rec_path = str(server_rec)
+
+            # RapidOCR parameter tuning (Improvements #1, #2, #7, #8)
+            # min_height=32 adds vertical padding for short/tightly-packed packaging lines
+            self._engine = RapidOCR(
+                det_model_path=det_path,
+                rec_model_path=rec_path,
+                det_limit_side_len=1280,
+                det_db_thresh=0.20,
+                det_db_box_thresh=0.40,
+                det_db_unclip_ratio=2.2,
+                text_score=0.35,
+                min_height=32,
+            )
             # Disable aspect ratio cutoff to prevent skipping text on elongated packaging (cans, milk cartons)
             self._engine.width_height_ratio = -1
             logger.info("RapidOCR (PP-OCRv4 ONNXRuntime) engine initialized successfully.")
@@ -214,7 +245,7 @@ def extract_text(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> OCRRa
     Returns:
         OCRRawPayload: Container with complete list of OCRToken objects.
     """
-    image_np = PreprocessHandoff.load_and_validate(image)
+    image_np = load_and_prepare(image)
 
     try:
         engine = RapidOCREngine.get_instance()
