@@ -31,7 +31,7 @@ class TextLine(BaseModel):
 class TokenNormalizer:
     """Cleans, filters, and spatially arranges OCR tokens into coherent text structures."""
 
-    DEFAULT_MIN_CONFIDENCE: float = 0.40
+    DEFAULT_MIN_CONFIDENCE: float = 0.34
     # Characters that are typically noise artifacts when isolated
     ISOLATED_NOISE_CHARS = set("~`^_|=+<>\\")
 
