@@ -100,12 +100,24 @@ def public_health_check():
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # Log full details server-side for debugging
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+
+    # In production, return generic error; in dev, include details for debugging
+    if settings.ENVIRONMENT == "production":
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal Server Error"}
+        )
+
+    # Development: include error details for debugging
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal Server Error",
             "detail": str(exc),
-            "path": request.url.path
+            "path": request.url.path,
+            "type": type(exc).__name__
         }
     )
 
