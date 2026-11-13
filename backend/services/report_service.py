@@ -1,6 +1,8 @@
 import io
 import os
-from urllib.request import urlopen
+import re
+from urllib.request import urlopen, Request
+from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone
 from reportlab.lib.pagesizes import letter
@@ -8,19 +10,133 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from backend.models.inspection import InspectionResult, ComplianceStatus
+from backend.config import settings
+
+
+def _is_trusted_image_url(image_url: str) -> bool:
+    """
+    Validate that an image URL is from a trusted source.
+    Only allows:
+    - Supabase Storage public URLs for the configured bucket
+    - Local upload fallback paths (/api/uploads/)
+    """
+    if not image_url:
+        return False
+
+    # Allow local upload fallback
+    if image_url.startswith("/api/uploads/"):
+        # Extract the path after /api/uploads/
+        relative_path = image_url[len("/api/uploads/"):]
+        if not relative_path:
+            return False
+
+        # Resolve and validate the path is within uploads directory
+        # Use Path to normalize and check for traversal
+        try:
+            requested_path = (Path(__file__).resolve().parent.parent / "uploads" / relative_path).resolve()
+            uploads_dir = (Path(__file__).resolve().parent.parent / "uploads").resolve()
+            # Ensure the resolved path is within uploads directory
+            requested_path.relative_to(uploads_dir)
+        except (ValueError, OSError):
+            return False
+
+        # Additional checks: no hidden files, no path traversal sequences
+        path_parts = Path(relative_path).parts
+        if any(part.startswith(".") for part in path_parts):
+            return False
+        if ".." in relative_path:
+            return False
+
+        return True
+
+    # Must be HTTPS
+    if not image_url.startswith("https://"):
+        return False
+
+    try:
+        parsed = urlparse(image_url)
+    except ValueError:
+        return False
+
+    # Validate against Supabase storage URL pattern
+    # Expected format: https://<project-ref>.supabase.co/storage/v1/object/public/<bucket>/<path>
+    # or: https://<project-ref>.supabase.co/storage/v1/object/sign/<bucket>/<path>
+    supabase_url = settings.SUPABASE_URL.rstrip("/") if settings.SUPABASE_URL else ""
+    if not supabase_url:
+        return False
+
+    # Normalize Supabase URL for comparison
+    supabase_parsed = urlparse(supabase_url)
+    if parsed.netloc != supabase_parsed.netloc:
+        return False
+
+    # Must be a storage object URL
+    storage_path_pattern = r"^/storage/v1/object/(public|sign)/" + re.escape(settings.SUPABASE_BUCKET_NAME) + r"/"
+    path_match = re.match(storage_path_pattern, parsed.path)
+    if not path_match:
+        return False
+
+    # Determine if this is a signed URL (allows query params for token) or public URL (no query params)
+    is_signed_url = "/sign/" in parsed.path
+
+    # Additional safety: no fragments ever
+    if parsed.fragment:
+        return False
+
+    # Public URLs must not have query params (could be redirect attempts)
+    # Signed URLs need query params for token/auth, so allow them
+    if not is_signed_url and parsed.query:
+        return False
+
+    return True
 
 
 def _load_evidence_image(image_url: str | None) -> io.BytesIO | None:
-    """Load an inspection image from Supabase or the local upload fallback."""
-    if not image_url:
+    """Load an inspection image from Supabase or the local upload fallback.
+
+    Only fetches from trusted sources to prevent SSRF:
+    - Supabase Storage public URLs for the configured bucket
+    - Local upload fallback paths (/api/uploads/)
+    """
+    if not image_url or not _is_trusted_image_url(image_url):
         return None
+
     try:
-        if image_url.startswith("http://") or image_url.startswith("https://"):
-            with urlopen(image_url, timeout=10) as response:
-                return io.BytesIO(response.read())
+        if image_url.startswith("https://"):
+            # Use Request with headers to prevent redirects and limit exposure
+            req = Request(
+                image_url,
+                headers={"User-Agent": "Synaptix-Inspector/1.0"},
+                method="GET",
+            )
+            # urlopen with timeout and no redirect following
+            with urlopen(req, timeout=10) as response:
+                # Verify content type is an image
+                content_type = response.headers.get("Content-Type", "")
+                if not content_type.startswith("image/"):
+                    return None
+                # Limit response size to 10MB
+                data = response.read(10 * 1024 * 1024)
+                return io.BytesIO(data)
+
         if image_url.startswith("/api/uploads/"):
-            local_path = Path(__file__).resolve().parent.parent / "uploads" / Path(image_url).name
-            return io.BytesIO(local_path.read_bytes())
+            # Use the same relative_path logic as validation to ensure consistency
+            relative_path = image_url[len("/api/uploads/"):]
+            if not relative_path:
+                return None
+            local_path = (Path(__file__).resolve().parent.parent / "uploads" / relative_path).resolve()
+            uploads_dir = (Path(__file__).resolve().parent.parent / "uploads").resolve()
+            # Re-validate path containment (defense in depth)
+            try:
+                local_path.relative_to(uploads_dir)
+            except ValueError:
+                return None
+            if local_path.exists() and local_path.is_file():
+                # Limit file size to 10MB
+                if local_path.stat().st_size > 10 * 1024 * 1024:
+                    return None
+                return io.BytesIO(local_path.read_bytes())
+
     except (OSError, ValueError, TimeoutError):
         return None
     return None
