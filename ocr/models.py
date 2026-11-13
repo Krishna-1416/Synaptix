@@ -56,6 +56,13 @@ class LegalMetrologyFields(BaseModel):
         description="Contact details (phone/email/address) of the consumer care cell.",
     )
 
+    def __getitem__(self, item: str):
+        return getattr(self, item)
+
+    def get(self, item: str, default=None):
+        val = getattr(self, item, default)
+        return val if val is not None else default
+
 
 class OCRTelemetry(BaseModel):
     """Non-functional observability metrics for performance and reliability tracing."""

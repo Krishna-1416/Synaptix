@@ -816,10 +816,37 @@ class LegalFieldExtractor:
             unit_sale_price=cls.extract_unit_sale_price(cleaned_lines),
         )
 
-    def extract(self, source: Any) -> dict:
-        """Instance method for field extraction from text lines or raw string."""
-        return extract_fields(source)
+    @classmethod
+    def extract(cls, source: Any) -> LegalMetrologyFields:
+        """Classmethod alias for field extraction returning LegalMetrologyFields."""
+        res = extract_fields(source)
+        if isinstance(res, LegalMetrologyFields):
+            return res
+        return LegalMetrologyFields(**res)
 
+
+MONTH_NAMES = {
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+    "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+}
+
+PRESERVED_WORDS = {
+    # Months
+    *MONTH_NAMES,
+    # Tax & price qualifiers
+    "INCL", "INCLUSIVE", "OF", "ALL", "TAXES", "TAX", "MAX", "MAXIMUM", "RETAIL", "PRICE", "MRP",
+    # Units & count descriptors
+    "KG", "G", "GM", "GMS", "GRAM", "GRAMS", "ML", "CL", "DL", "L", "LTR", "LITRE", "LITRES", "LITER", "LITERS",
+    "FL.OZ", "N", "UNIT", "UNITS", "PCS", "PIECE", "PIECES", "NOS", "STICK", "STICKS",
+    "MATCH", "MATCHES", "TABLET", "TABLETS", "CAPSULE", "CAPSULES", "SHEET", "SHEETS",
+    "WIPE", "WIPES", "POUCH", "POUCHES", "ROLL", "ROLLS", "BAG", "BAGS", "TUBE", "TUBES",
+    "BAR", "BARS", "PACK", "PACKS", "BOX", "BOXES", "BOTTLE", "BOTTLES",
+    # Date markers & common statutory prepositions
+    "MFD", "MFG", "PKD", "PACKED", "BEST", "BEFORE", "EXP", "EXPIRY", "USE", "BY", "BATCH", "B.NO", "DATE",
+    "IS", "SO", "NO", "OR", "AS", "TO", "IN", "ON", "AT", "IF", "IT"
+}
 
 NUMERIC_CORRECTIONS = {
     "O": "0",
@@ -831,36 +858,136 @@ NUMERIC_CORRECTIONS = {
     "Z": "2",
 }
 
+VALID_UNITS = [
+    "g", "gm", "grams", "kg", "ml", "ltr", "litres", "liter",
+    "units", "pcs", "pieces", "nos", "sticks", "tablets",
+    "capsules", "sheets", "wipes", "pouches", "rolls", "bars", "packs"
+]
+
+
+def levenshtein_distance(s1: str, s2: str) -> int:
+    """
+    Compute Levenshtein distance between two strings with O(min(m, n)) space
+    and zero external package dependencies.
+    """
+    if s1 == s2:
+        return 0
+    if not s1:
+        return len(s2)
+    if not s2:
+        return len(s1)
+    if len(s1) < len(s2):
+        s1, s2 = s2, s1
+    previous_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1] + [0] * len(s2)
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row[j + 1] = min(insertions, deletions, substitutions)
+        previous_row = current_row
+    return previous_row[-1]
+
+
+def fuzzy_match_token(token: str, valid_vocab: list[str], max_distance: int = 1) -> str:
+    """
+    Match a token against a closed vocabulary using Levenshtein distance.
+    Returns the closest vocabulary word if within max_distance, otherwise returns original token.
+    """
+    if not token or len(token) < 2:
+        return token
+
+    token_upper = token.upper()
+    best_match = None
+    best_dist = max_distance + 1
+
+    for word in valid_vocab:
+        word_upper = word.upper()
+        if abs(len(token_upper) - len(word_upper)) > max_distance:
+            continue
+        dist = levenshtein_distance(token_upper, word_upper)
+        if dist < best_dist and dist <= max_distance:
+            best_dist = dist
+            best_match = word
+
+    if best_match and best_dist <= max_distance:
+        return best_match.lower() if token.islower() else best_match
+
+    return token
+
+
+def fuzzy_correct_numeric(value: str, valid_patterns: list[str], max_distance: int = 1) -> str:
+    """
+    Compare an extracted numeric string or token against candidate patterns
+    using Levenshtein distance. Returns the candidate if within max_distance.
+    """
+    if not value or not valid_patterns:
+        return value
+    best = min(valid_patterns, key=lambda p: levenshtein_distance(value, p))
+    if levenshtein_distance(value, best) <= max_distance:
+        return best
+    return value
+
 
 def correct_numeric(text: str) -> str:
     """
     Apply OCR domain corrections to numeric field candidates (Improvement #6).
     Replaces common character misrecognitions (O->0, l/I->1, S->5, B->8, Z->2)
-    while preserving measurement units (e.g., 'ml', 'cl') and currency symbols.
+    in numeric tokens and alphanumeric dates while preserving month names,
+    measurement units, currency markers, and statutory wording.
     """
     if not text or not isinstance(text, str):
         return text
 
-    # Protect known packaging units and currency markers from corruption
-    protected = {}
-    tokens_to_preserve = [
-        "ml", "ML", "mL", "cl", "dl", "fl.oz", "pcs", "nos",
-        "Rs.", "RS.", "Rs", "RS", "INR", "₹"
-    ]
-    temp_text = text
-    for i, token in enumerate(tokens_to_preserve):
-        if token in temp_text:
-            placeholder = f"__TOKEN_{i}__"
-            protected[placeholder] = token
-            temp_text = temp_text.replace(token, placeholder)
+    # Split into chunks: tokens and delimiters (whitespace, punctuation)
+    parts = re.split(r"(\s+|[(),:/\-₹])", text)
+    repaired_parts = []
 
-    for wrong, right in NUMERIC_CORRECTIONS.items():
-        temp_text = temp_text.replace(wrong, right)
+    for part in parts:
+        if not part or not part.strip():
+            repaired_parts.append(part)
+            continue
 
-    for placeholder, original in protected.items():
-        temp_text = temp_text.replace(placeholder, original)
+        clean_token = re.sub(r"^[^\w]+|[^\w]+$", "", part).upper()
 
-    return temp_text
+        # 1. Skip if token matches known preserved words (e.g. SEP, TAXES, Sheets, INCL, g, ml)
+        if clean_token in PRESERVED_WORDS:
+            repaired_parts.append(part)
+            continue
+
+        # 1.5 Fuzzy match against month names (e.g. 5EP -> SEP, 0CT -> OCT, AU6 -> AUG)
+        if len(clean_token) == 3:
+            fuzzy_month = fuzzy_match_token(clean_token, list(MONTH_NAMES), max_distance=1)
+            if fuzzy_month in MONTH_NAMES:
+                repaired_parts.append(fuzzy_month)
+                continue
+
+        # 1.6 Fuzzy match against packaging units (e.g. shects -> sheets, tablels -> tablets)
+        if len(clean_token) >= 4:
+            fuzzy_unit = fuzzy_match_token(clean_token, VALID_UNITS, max_distance=1)
+            if fuzzy_unit.upper() in PRESERVED_WORDS:
+                repaired_parts.append(fuzzy_unit.lower() if part.islower() else fuzzy_unit)
+                continue
+
+        # 2. Skip if pure alphabetic word with length >= 3 not resembling OCR numeric error
+        if part.isalpha() and clean_token not in {"SOO", "LSO", "SSO", "BOO"}:
+            repaired_parts.append(part)
+            continue
+
+        # 3. If token contains at least one digit or is a known corrupted number token
+        has_digit = any(c.isdigit() for c in part)
+        is_corrupted_num = bool(re.match(r"^[OlISBZ0-9]+$", clean_token) and len(clean_token) >= 2)
+
+        if has_digit or is_corrupted_num:
+            repaired = part
+            for wrong, right in NUMERIC_CORRECTIONS.items():
+                repaired = repaired.replace(wrong, right)
+            repaired_parts.append(repaired)
+        else:
+            repaired_parts.append(part)
+
+    return "".join(repaired_parts)
 
 
 def repair_fields(fields: Union[dict, LegalMetrologyFields], raw_text: str = "") -> Union[dict, LegalMetrologyFields]:
