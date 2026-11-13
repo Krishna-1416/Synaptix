@@ -35,6 +35,9 @@ class Settings:
     ]
     CORS_ALLOW_CREDENTIALS: bool = "*" not in CORS_ORIGINS
     
+    # Environment (development, staging, production)
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+
     # Backend port (Render / PaaS injects PORT, fallback to BACKEND_PORT or 8000)
     PORT: int = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")

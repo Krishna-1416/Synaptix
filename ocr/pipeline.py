@@ -26,7 +26,7 @@ from ocr.models import (
 )
 from ocr.paddle_ocr_engine import extract_text, RapidOCREngine
 from ocr.normalizer import TokenNormalizer
-from ocr.field_extractor import LegalFieldExtractor, repair_fields
+from ocr.field_extractor import extract_fields, LegalFieldExtractor, repair_fields
 from ocr.preprocess_handoff import load_and_prepare
 
 logger = logging.getLogger("synaptix.ocr.pipeline")
@@ -40,6 +40,7 @@ def retry_on_regions(
     """
     Improvement #5: Targeted fallback OCR on cropped sub-regions.
     Re-OCRs cropped regions for specific missing fields at 1.5x upscaling.
+    Preserves 2D bounding boxes and line normalization on the recovered crop.
     """
     h, w = image.shape[:2]
     regions = {
@@ -54,19 +55,21 @@ def retry_on_regions(
             continue
         y1, y2, x1, x2 = regions[field]
         crop = image[int(h * y1):int(h * y2), int(w * x1):int(w * x2)]
-        if crop.size == 0:
+        if crop.size == 0 or crop.shape[0] < 10 or crop.shape[1] < 10:
             continue
-        # Upscale the crop for better OCR
+        # Upscale the crop for better micro-font OCR
         crop = cv2.resize(crop, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
         tokens = engine.detect_and_recognize(crop)
-        text = " ".join(t.text for t in tokens)
-        # Re-run the field extractor on the crop text
-        extractor = LegalFieldExtractor()
-        partial = extractor.extract(text)
+        if not tokens:
+            continue
+
+        # Re-run field extraction directly on tokens preserving spatial layout
+        partial = extract_fields(tokens)
         if isinstance(partial, dict) and partial.get(field):
             recovered[field] = partial[field]
         elif hasattr(partial, field) and getattr(partial, field):
             recovered[field] = getattr(partial, field)
+
     return recovered
 
 
@@ -105,6 +108,13 @@ def run_ocr_pipeline(image: Union[np.ndarray, str, Path, bytes, bytearray]) -> O
         retry_fields = retry_on_regions(image_np, engine, missing)
         if retry_fields:
             fields = fields.model_copy(update={k: v for k, v in retry_fields.items() if v})
+
+    # Structured observability for unrecovered statutory fields (Improvement #7)
+    unrecovered = [f for f in critical_fields if not getattr(fields, f, None)]
+    if unrecovered:
+        logger.info(
+            f"Statutory fields unrecovered after crop retry: {unrecovered} (tokens={len(tokens)})"
+        )
 
     # 5. Telemetry metrics
     elapsed_ms = round((time.perf_counter() - start_time) * 1000.0, 2)
