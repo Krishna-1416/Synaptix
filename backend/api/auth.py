@@ -40,30 +40,20 @@ async def require_auth(
         )
     token = credentials.credentials
 
-    # Dev mock token — always valid in offline mode
-    if token == "mock_dev_token_inspector":
-        return UserProfile(
-            id="USR-MOCK-001",
-            email="inspector@synaptix.gov.in",
-            full_name="Lead Inspector",
-            role="inspector",
-        )
-    if token == "mock_dev_token_admin":
-        return UserProfile(
-            id="USR-MOCK-ADMIN",
-            email="admin@synaptix.gov.in",
-            full_name="Synaptix Admin",
-            role="admin",
-        )
-
     client = get_supabase_client()
     if not client:
-        # Supabase offline — accept any token as guest
-        return UserProfile(
-            id="USR-OFFLINE",
-            email="officer@synaptix.gov.in",
-            full_name="Offline Officer",
-            role="inspector",
+        # Supabase not configured — fail closed in production, allow mock only in dev
+        if settings.ENVIRONMENT == "development":
+            logger.warning("Supabase offline — development mock authentication enabled")
+            return UserProfile(
+                id="USR-MOCK-001",
+                email="inspector@synaptix.gov.in",
+                full_name="Lead Inspector",
+                role="inspector",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
         )
 
     try:
